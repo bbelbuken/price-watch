@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ from pathlib import Path
 import yaml
 
 from . import akakce, notify
-from .matching import ranked
+from .matching import compact, ranked
 
 ROOT = Path(__file__).resolve().parent.parent
 WATCHES_FILE = ROOT / "watches.yaml"
@@ -36,7 +37,7 @@ TURKEY = timezone(timedelta(hours=3))  # no DST in Turkey since 2016
 REQUEST_PAUSE_S = 3  # politeness pause between requests to Akakçe
 RETRY_WAITS_S = (10, 30)  # 3 tries in total per run
 TOP_N = 5
-NAME_MAX = 48
+NAME_MAX = 30
 DEFAULTS = {"summary_times": ["09:00", "21:00"], "min_drop_pct": 1.0}
 
 
@@ -48,8 +49,49 @@ def tl(amount: float) -> str:
     return whole.replace(",", "X").replace(".", ",").replace("X", ".") + " TL"
 
 
-def short(name: str) -> str:
-    return name if len(name) <= NAME_MAX else name[: NAME_MAX - 1].rstrip() + "…"
+def lira(amount: float) -> str:
+    """Compact price for lists: 63479.08 -> '63.479₺' (kuruş dropped)."""
+    return f"{round(amount):,}".replace(",", ".") + "₺"
+
+
+# Words that add nothing in a phone-sized list (GPU boilerplate mostly).
+_FILLER = {"rx", "amd", "radeon", "ekran", "karti", "edition"}
+# Specs that start the "technical tail" of a name: "256 Bit GDDR6 16 GB Ekran Kartı".
+_TAIL_RE = re.compile(r"\s(\d+\s?bit|gddr\d\w*|\d+\s?gb\b)", re.IGNORECASE)
+
+
+def _is_part_number(token: str) -> bool:
+    """GV-R9070XTGAMING, OC-16GD, 11348-03-20G, PRIME-RX9070XT-O16G – codes, not words."""
+    has_digit = any(c.isdigit() for c in token)
+    has_alpha = any(c.isalpha() for c in token)
+    if "-" in token:
+        return has_digit and len(token) >= 6
+    return has_digit and has_alpha and len(token) >= 10  # keeps model names like CSK1000
+
+
+def short_name(name: str, watch: dict) -> str:
+    """'Gigabyte RX 9070 XT Gaming OC GV-R9070XTGAMING OC-16GD 256 Bit GDDR6 16 GB Ekran Kartı'
+    -> 'Gigabyte Gaming OC' (search words, part numbers and the spec tail removed)."""
+    query_words = {compact(w) for w in str(watch.get("query") or watch.get("name") or "").split()}
+    head = _TAIL_RE.split(name, maxsplit=1)[0]
+    words = [
+        w for w in head.split()
+        if compact(w) not in query_words and compact(w) not in _FILLER and not _is_part_number(w)
+    ]
+    words = words or name.split()
+    text = " ".join(words)
+    if len(text) <= NAME_MAX:
+        return text
+    out = ""
+    for w in words:  # cut at a word boundary
+        if len(out) + len(w) + 1 > NAME_MAX - 1:
+            break
+        out = f"{out} {w}".strip()
+    return (out or text[: NAME_MAX - 1]) + "…"
+
+
+def seller_name(seller: str) -> str:
+    return re.sub(r"\.(com|net)(\.tr)?$", "", seller, flags=re.IGNORECASE)
 
 
 def search_url(watch: dict) -> str:
@@ -187,30 +229,32 @@ def due_summary_slot(now: datetime, times: list[str], last_sent: str | None) -> 
 
 # ---------------------------------------------------------------- messages
 
-def product_line(i: int, p: akakce.Product, watch: dict, drop: Drop | None) -> str:
+LINK_PREFIX = "🔗 "  # notify.py turns these lines into buttons where it can (ntfy)
+
+
+def product_line(p: akakce.Product, watch: dict, drop: Drop | None) -> str:
+    """'61.900₺  Gigabyte Gaming OC' – one line; a drop adds a short second line."""
     target = watch.get("target")
     fire = "🔥" if target is not None and p.price <= float(target) else ""
-    line = f"{i}. {fire}{tl(p.price)}"
+    line = f"{fire}{lira(p.price)}  {short_name(p.name, watch)}"
     if drop and drop.before is None:
-        line += " 🆕 ilk 5'e girdi"
-    elif drop:
+        return f"{line} 🆕"
+    if drop:
         pct = (drop.before - p.price) / drop.before * 100
-        line += f" ⬇️ %{pct:.0f} ({tl(drop.before)})"
-    return f"{line}\n   {short(p.name)}"
+        return f"{line}\n      ⬇️ %{pct:.0f} · önce {lira(drop.before)}"
+    return line
 
 
 def watch_block(res: WatchResult, products: list[akakce.Product], seller: str) -> str:
     w = res.watch
-    head = f"*{label(w)}*"
+    head = f"▸ *{label(w)}*"
     if w.get("target") is not None:
-        head += f" · hedef {tl(float(w['target']))}"
+        head += f" · 🎯 {lira(float(w['target']))}"
     drops = {d.product.code: d for d in res.drops}
-    lines = [head]
-    for i, p in enumerate(products, 1):
-        lines.append(product_line(i, p, w, drops.get(p.code)))
-        if i == 1 and seller:
-            lines.append(f"   🏪 {seller}")
-    lines.append(f"Daha fazla: {search_url(w)}")
+    lines = [head] + [product_line(p, w, drops.get(p.code)) for p in products]
+    if seller:
+        lines.append(f"🏪 En ucuz: {seller_name(seller)}")
+    lines.append(f"{LINK_PREFIX}{search_url(w)}")
     return "\n".join(lines)
 
 
@@ -220,7 +264,7 @@ def build_message(results: list[WatchResult], summary_slot: str | None, sellers:
     for res in results:
         if res.error:
             if res.warn or summary_slot:
-                blocks.append(f"⚠️ *{label(res.watch)}*: Akakçe 3 denemede okunamadı ({res.error}).")
+                blocks.append(f"⚠️ *{label(res.watch)}*: Akakçe okunamadı ({res.error})")
             continue
         if res.recovered:
             blocks.append(f"✅ *{label(res.watch)}* tekrar okunuyor.")

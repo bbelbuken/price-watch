@@ -105,22 +105,46 @@ def _send_telegram(owner: str, text: str) -> bool:
 NTFY_LIMIT = 1800  # ntfy allows 4096 bytes; Turkish letters/emoji take 2-4 bytes each
 
 
+NTFY_MAX_ACTIONS = 3  # ntfy shows at most 3 buttons per notification
+LINK_PREFIX = "🔗 "
+
+
+def _link_buttons(chunk: str) -> tuple[str, list[dict]]:
+    """Turn up to 3 '🔗 <url>' lines into ntfy 'view' buttons named after their watch.
+
+    A watch block looks like '▸ 9070 xt · 🎯 58.000₺' ... '🔗 https://...'; the button
+    label is the part between '▸ ' and ' ·'. Links beyond the 3rd stay as text."""
+    actions, blocks = [], []
+    for block in chunk.split("\n\n"):
+        lines = block.split("\n")
+        if len(actions) < NTFY_MAX_ACTIONS and lines[-1].startswith(LINK_PREFIX):
+            label = lines[0].removeprefix("▸ ").split(" · ")[0].strip()[:24] or "Akakçe"
+            actions.append({"action": "view", "label": label, "url": lines[-1][len(LINK_PREFIX):].strip()})
+            lines = lines[:-1]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks), actions
+
+
 def ntfy_payloads(topic: str, text: str) -> list[dict]:
-    """First line -> notification title, the rest -> body (plain text, *bold* removed).
-    Long bodies become several notifications titled '<title> (1/2)', '(2/2)'."""
+    """First line -> notification title, the rest -> body (plain text, *bold* removed),
+    links -> buttons. Long bodies become several notifications '<title> (1/2)', '(2/2)'."""
     plain = re.sub(r"\*([^*\n]+)\*", r"\1", text)
     title, _, body = plain.partition("\n")
     chunks = split(body.strip() or title, NTFY_LIMIT)
     priority = 4 if any(mark in title for mark in ("📉", "🆕", "⚠️")) else 3
-    return [
-        {
+    payloads = []
+    for i, chunk in enumerate(chunks, 1):
+        message, actions = _link_buttons(chunk)
+        payload = {
             "topic": topic,
             "title": title if len(chunks) == 1 else f"{title} ({i}/{len(chunks)})",
-            "message": chunk,
+            "message": message,
             "priority": priority,
         }
-        for i, chunk in enumerate(chunks, 1)
-    ]
+        if actions:
+            payload["actions"] = actions
+        payloads.append(payload)
+    return payloads
 
 
 def _send_ntfy(owner: str, text: str) -> bool:

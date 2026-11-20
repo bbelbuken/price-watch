@@ -253,9 +253,9 @@ def test_drop_message_lists_only_dropped_items():
     cpu = main.WatchResult({**W, "id": "cpu", "query": "9800x3d", "target": None}, top=[P(5, 20000)])
     text, reported = main.build_message([gpu, cpu], None, {"x": "n11"})
     assert text.startswith("📉 Fiyat düştü!")
-    assert "🔥57.000 TL ⬇️ %8 (61.900 TL)" in text and "🏪 n11" in text
+    assert "🔥57.000₺" in text and "⬇️ %8 · önce 61.900₺" in text and "🏪 En ucuz: n11" in text
     assert "61.000" not in text and "9800x3d" not in text
-    assert "Daha fazla: https://www.akakce.com/arama/?q=9070+xt&s=2" in text
+    assert "🔗 https://www.akakce.com/arama/?q=9070+xt&s=2" in text
     assert [(r.watch["id"], [p.code for p in ps]) for r, ps in reported] == [("x", [1])]
 
 
@@ -268,7 +268,7 @@ def test_three_watches_dropping_come_in_one_message():
     text, reported = main.build_message([gpu, cpu, psu], None, {})
     assert text.startswith("📉 Fiyat düştü!")
     assert all(f"*{q}*" in text for q in ("9070 xt", "9800x3d", "1000w psu"))
-    assert "🆕 ilk 5'e girdi" in text and len(reported) == 3
+    assert "6.000₺  9070 XT 🆕" in text and len(reported) == 3
 
 
 def test_summary_has_every_watch_in_one_message():
@@ -324,6 +324,16 @@ def test_ntfy_payloads_title_body_priority():
     assert s["priority"] == 3
 
 
+def test_ntfy_links_become_buttons():
+    from pricebot.notify import ntfy_payloads
+    text = ("🌙 Akşam özeti\n\n▸ *9070 xt* · 🎯 58.000₺\n61.900₺  Gigabyte Gaming OC\n🔗 https://a\n\n"
+            "▸ *RX 9070*\n49.858₺  PowerColor Reaper\n🔗 https://b")
+    [p] = ntfy_payloads("t", text)
+    assert p["actions"] == [{"action": "view", "label": "9070 xt", "url": "https://a"},
+                            {"action": "view", "label": "RX 9070", "url": "https://b"}]
+    assert "🔗" not in p["message"] and "61.900₺  Gigabyte Gaming OC" in p["message"]
+
+
 def test_ntfy_long_message_is_numbered():
     from pricebot.notify import ntfy_payloads
     text = "🌙 Akşam özeti\n\n" + "\n\n".join(f"*w{i}*\n" + "x" * 900 for i in range(4))
@@ -331,6 +341,27 @@ def test_ntfy_long_message_is_numbered():
     assert len(parts) > 1
     assert [p["title"] for p in parts][-1] == f"🌙 Akşam özeti ({len(parts)}/{len(parts)})"
     assert all(len(p["message"]) <= 1800 for p in parts)
+
+
+@pytest.mark.parametrize("name, query, expected", [
+    ("Gigabyte RX 9070 XT Gaming OC GV-R9070XTGAMING OC-16GD 256 Bit GDDR6 16 GB Ekran Kartı",
+     "9070 xt", "Gigabyte Gaming OC"),
+    ("Sapphire RX 9070 XT Pulse 11348-03-20G 256 Bit GDDR6 16 GB Ekran Kartı", "9070 xt", "Sapphire Pulse"),
+    ("Asus RX 9070 XT Prime OC Edition PRIME-RX9070XT-O16G 256 Bit GDDR6 16 GB Ekran Kartı",
+     "9070 xt", "Asus Prime OC"),
+    ("PowerColor RX 9070 XT Reaper 16G-A 256 Bit GDDR6 16 GB Ekran Kartı", "9070 xt", "PowerColor Reaper 16G-A"),
+    ("Chanel Coco Mademoiselle EDP 100 ml Kadın Parfüm", "coco mademoiselle", "Chanel EDP 100 ml Kadın Parfüm"),
+    ("Antec CSK1000 Pro Gen5.1 1000 W Power Supply", None, "Antec CSK1000 Pro Gen5.1 1000…"),
+])
+def test_short_name(name, query, expected):
+    assert main.short_name(name, {"query": query} if query else {}) == expected
+
+
+def test_lira_and_seller():
+    assert main.lira(63479.08) == "63.479₺"
+    assert main.lira(49857.6) == "49.858₺"
+    assert main.seller_name("Maksimumbilgisayar.com") == "Maksimumbilgisayar"
+    assert main.seller_name("incehesap.com.tr") == "incehesap"
 
 
 def test_tl_format():

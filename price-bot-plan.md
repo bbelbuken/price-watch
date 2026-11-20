@@ -126,10 +126,11 @@ public repos also get free unlimited Actions minutes.
 - [x] Test-run a fetch workflow on GitHub Actions → only Akakçe works; Akakçe becomes the main source
 - [ ] Cloudflare Worker: webhook verify + command parser + KV storage + `/watches` endpoint
 - [x] Phase 1: Akakçe parser, top 5, drop alerts, morning/evening summary, 10-min schedule, pytest
-- [ ] Secrets: PHONE\_ME, CALLMEBOT\_APIKEY\_ME (later gf's, Meta token, Worker token)
-- [ ] First test: Actions → price-watch → Run workflow
+- [x] Secret NTFY\_TOPIC\_ME (ntfy while Telegram's Bot API is down / CallMeBot is full)
+- [x] First test (2026-11-21): run 1 sent the evening summary, run 2 sent nothing → price memory works
+- [ ] Revoke the Telegram token that was shown in chat (@BotFather → /revoke)
 - [x] Targets for me: 9070 XT 58,000 TL, 9070 50,000 TL
-- [ ] Phase 2 – girlfriend: her CallMeBot key + her own watches (owner `gf`)
+- [ ] Phase 2 – girlfriend: her own ntfy topic (secret NTFY\_TOPIC\_GF) + her own watches (owner `gf`)
 - [ ] Phase 3: Cloudflare Worker, refactor watches.yaml → watches fetched from the Worker
 - [ ] Phase 3: generic product-URL parser (for sites Akakçe doesn't list); command to fix a
       broken watch after a ⚠️ message

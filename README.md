@@ -14,6 +14,12 @@ Runs free on GitHub Actions. Plan: [price-bot-plan.md](price-bot-plan.md).
 3. Push, then Actions → **price-watch** → **Run workflow**. The first run sends a summary
    with the top 5 of every watch; after that only drops and the 09:00 / 21:00 summaries.
 
+## Adding a watch
+Add a block to [watches.yaml](watches.yaml) with either:
+- `query: 9070 xt` – an Akakçe search, best for a specific model, or
+- `url: https://www.akakce.com/power-supply/1000-w-power-supply.html` – an Akakçe category
+  page with your filters selected, best for broad things (PSUs, SSDs, RAM...).
+
 ## Adding a person
 Use a new `owner` name in watches.yaml (e.g. `owner: gf`), add secrets
 `PHONE_GF` + `CALLMEBOT_APIKEY_GF`, and map them in

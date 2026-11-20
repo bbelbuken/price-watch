@@ -119,9 +119,9 @@ W = {"id": "x", "owner": "me", "query": "9070 xt", "target": 58000}
 
 def test_new_watch_has_no_drops():
     entry = {}
-    res = main.evaluate(W, [P(1, 60000)], entry, 1)
+    res = main.evaluate(W, [P(1, 60000)], entry, 1, today="2026-11-21")
     assert res.is_new and not res.drops
-    assert entry["items"]["1"] == {"price": 60000, "ref": 60000}
+    assert entry["items"]["1"] == {"price": 60000, "ref": 60000, "seen": "2026-11-21"}
 
 
 def test_small_jitter_ignored_but_creeping_drop_adds_up():
@@ -149,11 +149,75 @@ def test_price_rise_then_fall_is_a_drop():
     assert [d.before for d in res.drops] == [66000]
 
 
-def test_new_listing_cheaper_than_everything_is_a_drop():
+def test_unseen_product_entering_top5_is_reported_even_if_not_cheapest():
     entry = {}
-    main.evaluate(W, [P(1, 60000), P(2, 62000)], entry, 1)
-    res = main.evaluate(W, [P(3, 57000), P(1, 60000), P(2, 62000)], entry, 1)
-    assert [(d.product.code, d.before) for d in res.drops] == [(3, 60000)]
+    main.evaluate(W, [P(1, 50000), P(2, 51000), P(3, 52000)], entry, 1)
+    # e.g. a Nitro+ we never saw shows up at 51.500 -> 3rd place
+    res = main.evaluate(W, [P(1, 50000), P(2, 51000), P(9, 51500), P(3, 52000)], entry, 1)
+    assert [(d.product.code, d.before) for d in res.drops] == [(9, None)]
+    assert main.evaluate(W, [P(1, 50000), P(9, 51500)], entry, 1).drops == []  # only once
+
+
+def test_unseen_product_outside_top5_is_ignored():
+    entry = {}
+    products = [P(i, 50000 + i * 1000) for i in range(1, 6)]
+    main.evaluate(W, products, entry, 1)
+    res = main.evaluate(W, products + [P(99, 99000)], entry, 1)
+    assert res.drops == []
+
+
+def test_product_that_left_the_page_is_remembered_for_7_days():
+    entry = {}
+    main.evaluate(W, [P(1, 50000), P(2, 51000)], entry, 1, today="2026-11-01")
+    main.evaluate(W, [P(1, 50000)], entry, 1, today="2026-11-03")  # 2 dropped off the page
+    back = main.evaluate(W, [P(1, 50000), P(2, 51000)], entry, 1, today="2026-11-05")
+    assert back.drops == []  # not reported as new
+    main.evaluate(W, [P(1, 50000)], entry, 1, today="2026-11-20")
+    assert "2" not in entry["items"]  # forgotten after 7 days unseen
+
+
+@pytest.mark.parametrize("given, expected", [
+    ("https://www.akakce.com/power-supply/1000-w-power-supply.html",
+     "https://www.akakce.com/power-supply/1000-w-power-supply,1,2.html"),
+    ("https://www.akakce.com/power-supply/1000-w-power-supply,3.html?x=1#top",
+     "https://www.akakce.com/power-supply/1000-w-power-supply,1,2.html"),
+    ("https://www.akakce.com/power-supply/1000-w-power-supply,2,5.html",
+     "https://www.akakce.com/power-supply/1000-w-power-supply,1,2.html"),
+    ("http://akakce.com/power-supply.html",
+     "https://www.akakce.com/power-supply,1,2.html"),
+    ("https://www.akakce.com/power-supply.html/1234,5678",
+     "https://www.akakce.com/power-supply,1,2.html/1234,5678"),
+])
+def test_category_url_sorted_cheapest_first(given, expected):
+    assert akakce.category_url(given) == expected
+
+
+@pytest.mark.parametrize("bad", [
+    "https://www.akakce.com/ekran-karti/en-ucuz-asus-rx-9070-xt-fiyati,965149486.html",
+    "https://www.amazon.com.tr/s?k=9070",
+])
+def test_category_url_rejects_other_links(bad):
+    with pytest.raises(ValueError):
+        akakce.category_url(bad)
+
+
+def test_label():
+    assert main.label({"query": "9070 xt"}) == "9070 xt"
+    assert main.label({"url": "https://www.akakce.com/power-supply/1000-w-power-supply.html"}) == "1000 w power supply"
+    assert main.label({"name": "PSU", "url": "https://x/y.html"}) == "PSU"
+
+
+def test_config_needs_exactly_one_of_query_or_url(tmp_path):
+    f = tmp_path / "w.yaml"
+    f.write_text("watches:\n  - {id: a, owner: me, query: x, url: 'https://www.akakce.com/a.html'}\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        main.load_config(f)
+
+
+def test_search_url_sorts_by_price_within_range():
+    assert akakce.search_url("1000w psu", 4000, 9000) == (
+        "https://www.akakce.com/arama/?q=1000w+psu&s=2&p1=4000&p2=9000")
+    assert akakce.search_url("9070 xt") == "https://www.akakce.com/arama/?q=9070+xt&s=2"
 
 
 def test_only_top5_are_considered():
@@ -191,8 +255,20 @@ def test_drop_message_lists_only_dropped_items():
     assert text.startswith("📉 Fiyat düştü!")
     assert "🔥57.000 TL ⬇️ %8 (61.900 TL)" in text and "🏪 n11" in text
     assert "61.000" not in text and "9800x3d" not in text
-    assert "Daha fazla: https://www.akakce.com/arama/?q=9070+xt" in text
+    assert "Daha fazla: https://www.akakce.com/arama/?q=9070+xt&s=2" in text
     assert [(r.watch["id"], [p.code for p in ps]) for r, ps in reported] == [("x", [1])]
+
+
+def test_three_watches_dropping_come_in_one_message():
+    gpu = main.WatchResult(W, top=[P(1, 57000)], drops=[main.Drop(P(1, 57000), 61900)])
+    cpu = main.WatchResult({**W, "id": "cpu", "query": "9800x3d"}, top=[P(5, 19500)],
+                           drops=[main.Drop(P(5, 19500), 20100)])
+    psu = main.WatchResult({**W, "id": "psu", "query": "1000w psu"}, top=[P(7, 6000)],
+                           drops=[main.Drop(P(7, 6000), None)])
+    text, reported = main.build_message([gpu, cpu, psu], None, {})
+    assert text.startswith("📉 Fiyat düştü!")
+    assert all(f"*{q}*" in text for q in ("9070 xt", "9800x3d", "1000w psu"))
+    assert "🆕 ilk 5'e girdi" in text and len(reported) == 3
 
 
 def test_summary_has_every_watch_in_one_message():

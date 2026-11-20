@@ -1,8 +1,15 @@
-# What to watch. One block per watch; the bot searches Akakçe for `query` every hour.
+# What to watch. One block per watch; the bot checks Akakçe every ~10 minutes.
 #
 #   id         unique short name (used in state.json)
 #   owner      who gets the alert -> needs secrets PHONE_<OWNER> and CALLMEBOT_APIKEY_<OWNER>
-#   query      what you'd type into Akakçe's search box
+#
+#   Where to look – exactly one of:
+#   query      what you'd type into Akakçe's search box (good for specific models: "9070 xt")
+#   url        an Akakçe category page, optionally with its filters selected, for broad
+#              things (PSUs, SSDs...): open akakce.com, pick the category + filters
+#              (e.g. Power Supply → 1000 W), copy the address. Sorting is added by the bot.
+#   name       optional label for messages (default: the query or the category name)
+#
 #   include    every term must appear in the product name (spaces/case ignored)
 #   exclude    product is skipped if any term appears (e.g. prebuilt PCs, other models)
 #   min_price  ignore listings below this (accessories, fakes, testers)
@@ -10,9 +17,10 @@
 #   target     your dream price -> 🔥 in the message when reached
 #   min_drop_pct  optional, default 1: smaller drops are ignored as noise
 #
-# Messages: each person gets at most one WhatsApp message per run (every ~10 min):
-#   - drop alert: only products that got >= min_drop_pct cheaper (top 5 of each search)
-#   - summary at summary_times (Turkey time): top 5 of every search
+# Messages: each person gets at most one WhatsApp message per run, all searches inside:
+#   - alert: products in the current top 5 that got >= min_drop_pct cheaper, or that
+#     entered the top 5 for the first time (🆕)
+#   - summary at summary_times (Turkey time): top 5 of every watch
 
 settings:
   summary_times: ["09:00", "21:00"]
@@ -29,8 +37,15 @@ watches:
 
   - id: rx9070
     owner: me
-    query: rx 9070 ekran kartı
-    include: ["9070"]
-    exclude: ["9070 xt", "9070 gre", "laptop", "notebook", "bilgisayar", "sistem", "kasa"]
+    name: RX 9070
+    url: https://www.akakce.com/ekran-karti/rx-9070.html
+    exclude: ["9070 xt", "9070 gre"]
     min_price: 25000
     target: 50000
+
+  # Example for a broad search – uncomment to use:
+  # - id: psu1000
+  #   owner: me
+  #   name: 1000W PSU
+  #   url: https://www.akakce.com/power-supply/1000-w-power-supply.html
+  #   min_price: 3000

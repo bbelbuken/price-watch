@@ -143,8 +143,52 @@ def _get(url: str) -> str:
     return resp.text
 
 
-def search(query: str) -> list[Product]:
-    return parse_search(_get(f"{BASE}/arama/?q={quote_plus(query)}"))
+def search_url(query: str, min_price: float | None = None, max_price: float | None = None) -> str:
+    """Akakçe search sorted cheapest first (s=2), limited to [p1, p2] TL.
+
+    Without the price filter, "1000w psu" sorted by price would be a page of cables.
+    Queries Akakçe maps to a category (e.g. "rx 9070 ekran kartı") are redirected to the
+    category page and lose these parameters; those pages are small and we sort locally.
+    """
+    url = f"{BASE}/arama/?q={quote_plus(query)}&s=2"
+    if min_price:
+        url += f"&p1={int(min_price)}"
+    if max_price:
+        url += f"&p2={int(max_price)}"
+    return url
+
+
+def search(query: str, min_price: float | None = None, max_price: float | None = None) -> list[Product]:
+    return parse_search(_get(search_url(query, min_price, max_price)))
+
+
+_CATEGORY_RE = re.compile(r"^(https://www\.akakce\.com/[^?#]*?)(?:,\d+(?:,\d+)?)?\.html([^?#]*)")
+
+
+def is_product_page(url: str) -> bool:
+    return "/en-ucuz-" in url or "-fiyati," in url
+
+
+def category_url(url: str) -> str:
+    """Akakçe category/filter page -> its first page sorted cheapest first.
+
+    Akakçe builds these as /<category>/<filter>,<page>,<sort>.html[/<filter ids>],
+    sort 2 = lowest price. e.g. /power-supply/1000-w-power-supply.html
+    -> /power-supply/1000-w-power-supply,1,2.html
+    """
+    url = url.strip()
+    if url.startswith("http://"):
+        url = "https://" + url[len("http://"):]
+    if url.startswith("https://akakce.com/"):
+        url = url.replace("https://akakce.com/", "https://www.akakce.com/", 1)
+    m = _CATEGORY_RE.match(url)
+    if not m or is_product_page(url):
+        raise ValueError(f"not an Akakçe category page: {url}")
+    return f"{m.group(1)},1,2.html{m.group(2)}"
+
+
+def category(url: str) -> list[Product]:
+    return parse_search(_get(category_url(url)))
 
 
 def offers(product_url: str) -> list[Offer]:

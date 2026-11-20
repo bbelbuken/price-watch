@@ -22,7 +22,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote_plus
 
 import yaml
 
@@ -53,8 +52,19 @@ def short(name: str) -> str:
     return name if len(name) <= NAME_MAX else name[: NAME_MAX - 1].rstrip() + "…"
 
 
-def search_url(query: str) -> str:
-    return f"{akakce.BASE}/arama/?q={quote_plus(query)}"
+def search_url(watch: dict) -> str:
+    """The same view the bot uses: cheapest first (within min/max price for searches)."""
+    if watch.get("url"):
+        return akakce.category_url(watch["url"])
+    return akakce.search_url(watch["query"], watch.get("min_price"), watch.get("max_price"))
+
+
+def label(watch: dict) -> str:
+    """Name shown in messages: `name`, else the search text, else the category slug."""
+    if watch.get("name") or watch.get("query"):
+        return str(watch.get("name") or watch["query"])
+    slug = watch["url"].split("?")[0].rstrip("/").rsplit("/", 1)[-1].split(",")[0]
+    return slug.removesuffix(".html").replace("-", " ")
 
 
 # ---------------------------------------------------------------- config / state
@@ -64,9 +74,13 @@ def load_config(path: Path = WATCHES_FILE) -> tuple[dict, list[dict]]:
     settings = {**DEFAULTS, **(data.get("settings") or {})}
     watches = data.get("watches") or []
     for w in watches:
-        for f in ("id", "owner", "query"):
+        for f in ("id", "owner"):
             if not w.get(f):
                 raise ValueError(f"watch {w!r} is missing '{f}'")
+        if bool(w.get("query")) == bool(w.get("url")):
+            raise ValueError(f"watch '{w['id']}' needs exactly one of 'query' or 'url'")
+        if w.get("url"):
+            akakce.category_url(w["url"])  # raises ValueError for non-category links
     ids = [w["id"] for w in watches]
     if len(ids) != len(set(ids)):
         raise ValueError("watch ids must be unique")
@@ -91,7 +105,7 @@ def save_state(state: dict, path: Path = STATE_FILE) -> None:
 @dataclass
 class Drop:
     product: akakce.Product
-    before: float  # price we last told the owner about
+    before: float | None  # price we last told the owner about; None = never seen, just entered the top 5
 
 
 @dataclass
@@ -105,37 +119,46 @@ class WatchResult:
     recovered: bool = False  # works again after a warning
 
 
-def evaluate(watch: dict, matching: list[akakce.Product], entry: dict, min_drop_pct: float) -> WatchResult:
+FORGET_AFTER_DAYS = 7  # products not seen this long are forgotten
+
+
+def evaluate(
+    watch: dict,
+    matching: list[akakce.Product],
+    entry: dict,
+    min_drop_pct: float,
+    today: str | None = None,
+) -> WatchResult:
     """Compare fresh results with the state entry and update the entry's prices.
 
-    entry["items"][code] = {"price": current, "ref": price the owner last heard about}.
+    Only the current top 5 (cheapest matching) can trigger an alert:
+    * a known product whose price is >= min_drop_pct below what the owner last heard, or
+    * a product we have never seen that is now in the top 5 (🆕).
+    entry["items"][code] = {"price", "ref" (price the owner last heard about), "seen" (date)}.
     `ref` follows the price up (so a later fall is a drop), but only moves down when the
     owner is told (mark_reported) – slow creeping drops add up instead of being lost.
+    Products are remembered for FORGET_AFTER_DAYS even when they drop off the page, so
+    one coming back isn't reported as new.
     """
+    today = today or datetime.now(TURKEY).date().isoformat()
     items: dict = entry.setdefault("items", {})
     res = WatchResult(watch, top=matching[:TOP_N], is_new=not items)
     pct = float(watch.get("min_drop_pct", min_drop_pct))
-    known_refs = [v["ref"] for v in items.values()]
-    floor = min(known_refs) if known_refs else None
 
     if not res.is_new:
         for p in res.top:
             old = items.get(str(p.code))
-            if old is not None:
-                before = old["ref"]
-            elif floor is not None and p.price < floor:
-                before = floor  # a new listing that undercuts everything we knew
-            else:
-                continue
-            if p.price <= before * (1 - pct / 100):
-                res.drops.append(Drop(p, before))
+            if old is None:
+                res.drops.append(Drop(p, None))
+            elif p.price <= old["ref"] * (1 - pct / 100):
+                res.drops.append(Drop(p, old["ref"]))
 
-    fresh = {}
     for p in matching:
         old = items.get(str(p.code))
         ref = p.price if old is None else max(old["ref"], p.price)
-        fresh[str(p.code)] = {"price": p.price, "ref": ref}
-    entry["items"] = fresh
+        items[str(p.code)] = {"price": p.price, "ref": ref, "seen": today}
+    cutoff = (datetime.fromisoformat(today) - timedelta(days=FORGET_AFTER_DAYS)).date().isoformat()
+    entry["items"] = {k: v for k, v in items.items() if v.get("seen", today) >= cutoff}
     return res
 
 
@@ -168,7 +191,9 @@ def product_line(i: int, p: akakce.Product, watch: dict, drop: Drop | None) -> s
     target = watch.get("target")
     fire = "🔥" if target is not None and p.price <= float(target) else ""
     line = f"{i}. {fire}{tl(p.price)}"
-    if drop:
+    if drop and drop.before is None:
+        line += " 🆕 ilk 5'e girdi"
+    elif drop:
         pct = (drop.before - p.price) / drop.before * 100
         line += f" ⬇️ %{pct:.0f} ({tl(drop.before)})"
     return f"{line}\n   {short(p.name)}"
@@ -176,7 +201,7 @@ def product_line(i: int, p: akakce.Product, watch: dict, drop: Drop | None) -> s
 
 def watch_block(res: WatchResult, products: list[akakce.Product], seller: str) -> str:
     w = res.watch
-    head = f"*{w['query']}*"
+    head = f"*{label(w)}*"
     if w.get("target") is not None:
         head += f" · hedef {tl(float(w['target']))}"
     drops = {d.product.code: d for d in res.drops}
@@ -185,7 +210,7 @@ def watch_block(res: WatchResult, products: list[akakce.Product], seller: str) -
         lines.append(product_line(i, p, w, drops.get(p.code)))
         if i == 1 and seller:
             lines.append(f"   🏪 {seller}")
-    lines.append(f"Daha fazla: {search_url(w['query'])}")
+    lines.append(f"Daha fazla: {search_url(w)}")
     return "\n".join(lines)
 
 
@@ -195,10 +220,10 @@ def build_message(results: list[WatchResult], summary_slot: str | None, sellers:
     for res in results:
         if res.error:
             if res.warn or summary_slot:
-                blocks.append(f"⚠️ *{res.watch['query']}*: Akakçe 3 denemede okunamadı ({res.error}).")
+                blocks.append(f"⚠️ *{label(res.watch)}*: Akakçe 3 denemede okunamadı ({res.error}).")
             continue
         if res.recovered:
-            blocks.append(f"✅ *{res.watch['query']}* tekrar okunuyor.")
+            blocks.append(f"✅ *{label(res.watch)}* tekrar okunuyor.")
         if summary_slot or res.is_new:
             products = res.top
         else:
@@ -213,8 +238,10 @@ def build_message(results: list[WatchResult], summary_slot: str | None, sellers:
     if summary_slot:
         hour = int(summary_slot[-5:-3])
         title = ("☀️ Sabah özeti" if hour < 15 else "🌙 Akşam özeti") + f" · {summary_slot[-5:]}"
-    elif any(r.drops for r, _ in reported):
+    elif any(d.before is not None for r, _ in reported for d in r.drops):
         title = "📉 Fiyat düştü!"
+    elif any(r.drops for r, _ in reported):
+        title = "🆕 İlk 5'e yeni ürün girdi"
     elif any(r.is_new for r, _ in reported):
         title = "👀 Takip başladı"
     else:
@@ -224,14 +251,16 @@ def build_message(results: list[WatchResult], summary_slot: str | None, sellers:
 
 # ---------------------------------------------------------------- I/O
 
-def fetch(query: str) -> list[akakce.Product]:
+def fetch(watch: dict) -> list[akakce.Product]:
     """Search with up to 3 tries; raises AkakceError if all fail."""
     last_exc = None
     for attempt, wait in enumerate((0, *RETRY_WAITS_S), 1):
         if wait:
             time.sleep(wait)
         try:
-            return akakce.search(query)
+            if watch.get("url"):
+                return akakce.category(watch["url"])
+            return akakce.search(watch["query"], watch.get("min_price"), watch.get("max_price"))
         except akakce.AkakceError as exc:
             last_exc = exc
             print(f"  try {attempt} failed: {exc}")
@@ -253,7 +282,7 @@ def best_seller(product: akakce.Product) -> str:
 def check(watch: dict, state: dict, settings: dict) -> WatchResult:
     entry = state.setdefault("watches", {}).setdefault(watch["id"], {})
     try:
-        products = fetch(watch["query"])
+        products = fetch(watch)
     except akakce.AkakceError as exc:
         res = WatchResult(watch, error=str(exc), warn=not entry.get("warned"))
         entry["warned"] = True

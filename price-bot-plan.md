@@ -40,8 +40,16 @@ Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includ
 - **One message per person per run**, all of that person's searches inside it.
 - Each search shows the **top 5 cheapest** matching products, the store of the cheapest one,
   and a "Daha fazla" link to the Akakçe search (opens the Akakçe app if installed).
-- **Drop alert** (any run): only the products whose price fell ≥ 1% since the owner last
-  heard about them, with new price, old price and %. Small drops add up instead of being lost.
+- The search is sorted **cheapest first** within `min_price`–`max_price` (Akakçe `s=2&p1&p2`),
+  so cheap matches deep in the results aren't missed.
+- **Two kinds of watch:** `query` (search text – good for a specific model like "9070 xt") or
+  `url` (an Akakçe category page with filters, e.g. Power Supply → 1000 W – for broad things,
+  where a price-sorted text search returns cases, testers and UPSs). The bot rewrites the
+  category link to its cheapest-first form (`…/<filter>,1,2.html`).
+- **Drop alert** (any run): only products in the **current top 5** – ones whose price fell ≥ 1%
+  since the owner last heard about them (new price, old price, %), and ones never seen before
+  that just entered the top 5 (🆕). Price rises and changes outside the top 5 are silent.
+  Small drops add up instead of being lost. Products are remembered 7 days after they were last seen.
 - **Summary** at 09:00 and 21:00 Turkey time: the top 5 of every search, drops marked.
 - **Newly added search**: its top 5 in the next message ("Takip başladı").
 - **Site errors**: 3 tries per run; if all fail, one ⚠️ message, then quiet until it works again.

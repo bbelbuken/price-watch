@@ -37,7 +37,13 @@ jobs:
 
       - name: Check prices
         env:
-          # One PHONE_/CALLMEBOT_APIKEY_ pair per watch owner in watches.yaml.
+          # Per watch owner, the first configured channel wins: Telegram > ntfy > WhatsApp.
+          # ntfy (current): one secret topic per person.
+          NTFY_TOPIC_ME: ${{ secrets.NTFY_TOPIC_ME }}
+          # Telegram: one bot token + one chat id per person.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID_ME: ${{ secrets.TELEGRAM_CHAT_ID_ME }}
+          # WhatsApp via CallMeBot (used for an owner without a Telegram chat id).
           PHONE_ME: ${{ secrets.PHONE_ME }}
           CALLMEBOT_APIKEY_ME: ${{ secrets.CALLMEBOT_APIKEY_ME }}
         run: python -m pricebot.main

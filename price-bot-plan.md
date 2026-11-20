@@ -7,11 +7,11 @@ Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includ
 ## Requirements
 1. **100% free** – no paid APIs, servers or messages.
 2. **WhatsApp** for both alerts and commands.
-3. **Self-service:** my girlfriend (Gökçe) can add any site/product she wants herself,
+3. **Self-service:** my girlfriend can add any site/product she wants herself,
    without me editing code.
 4. **Multiple phones:** works with different WhatsApp numbers, not just mine.
 5. **Per-user separation:** each person only sees and gets alerts for their own watches.
-6. **Example:** I track "9070 XT" on Amazon + Hepsiburada; Gökçe sends a perfume name for
+6. **Example:** I track "9070 XT" on Amazon + Hepsiburada; my girlfriend sends a perfume name for
    Sephora and gets its price back as a message.
 7. No always-on PC – everything runs in free cloud tiers.
 
@@ -21,18 +21,18 @@ Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includ
 | --- | --- |
 | Language | Python 3.12 (requests, PyYAML) for the scraper |
 | Scheduler | GitHub Actions cron, every 10 min (public repo → unlimited free minutes) |
-| Alerts (outgoing) | WhatsApp via CallMeBot free API – each user activates it with their own number and gets their own API key |
+| Alerts (outgoing) | **For now: ntfy** push notifications (free, no account, open source; one secret topic per person). Telegram's Bot API had an outage for new bots from 2026-11-18/20 (502/504 on getMe, tdlib/telegram-bot-api issues #1078, #1080, #1086); Telegram support stays in the code and takes over when its secrets are set. Telegram bot: one bot, one chat id per person. WhatsApp via CallMeBot is built in too, but CallMeBot showed "bot is currently full" on 2026-11-21 (no new sign-ups); switch back later by setting PHONE\_/CALLMEBOT\_APIKEY\_ secrets instead of the Telegram chat id |
 | Commands (incoming) | WhatsApp Cloud API (Meta) free test number → webhook on a Cloudflare Worker (free tier) |
 | Watch storage | Cloudflare KV (free), keyed by user; Actions reads it through a token-protected Worker endpoint |
-| Users | Allow-list in a Worker secret: phone number → user name (me, Gökçe); unknown numbers are ignored |
+| Users | Allow-list in a Worker secret: phone number → user name (me, gf); unknown numbers are ignored |
 | Price memory | state.json – kept in the GitHub Actions cache between runs (no commit spam) |
 | Secrets | Per user: phone + CALLMEBOT\_APIKEY\_<USER>; Meta token, verify token, KV/Worker token |
 | Fallback | Shared Google Sheet (one tab per user) read as published CSV, if the Meta route fails |
 
 ### Flow
-1. Gökçe texts the bot number: `add sephora Chanel Coco Mademoiselle 100ml 4000`.
+1. My girlfriend texts the bot number: `add sephora Chanel Coco Mademoiselle 100ml 4000`.
 2. Meta calls the Worker webhook → Worker looks up her number → saves the watch under
-   `gokce` in KV → replies "added ✅" (free: reply inside the 24h window).
+   `gf` in KV → replies "added ✅" (free: reply inside the 24h window).
 3. Every 10 min GitHub Actions pulls all users' watches, scrapes, compares with state.json.
 4. On a price drop, the bot sends the alert to *that user's* number via *their* CallMeBot key.
 
@@ -67,7 +67,7 @@ Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includ
   Hepsiburada, a perfume shop). Amazon, Hepsiburada and Sephora block GitHub's servers
   (see "Checks done"), so their prices come via Akakçe.
 - **Generic "any URL" parser:** reads price from JSON-LD `Product/Offer`, `product:price:amount`
-  / `og:price` meta tags; optional CSS selector override. This is how Gökçe can add a site
+  / `og:price` meta tags; optional CSS selector override. This is how she can add a site
   we didn't write a parser for.
 
 ## Checks done (2026-11-20)
@@ -126,14 +126,14 @@ public repos also get free unlimited Actions minutes.
 - [x] Test-run a fetch workflow on GitHub Actions → only Akakçe works; Akakçe becomes the main source
 - [ ] Cloudflare Worker: webhook verify + command parser + KV storage + `/watches` endpoint
 - [x] Phase 1: Akakçe parser, top 5, drop alerts, morning/evening summary, 10-min schedule, pytest
-- [ ] Secrets: PHONE\_ME, CALLMEBOT\_APIKEY\_ME (later Gökçe's, Meta token, Worker token)
+- [ ] Secrets: PHONE\_ME, CALLMEBOT\_APIKEY\_ME (later gf's, Meta token, Worker token)
 - [ ] First test: Actions → price-watch → Run workflow
 - [x] Targets for me: 9070 XT 58,000 TL, 9070 50,000 TL
-- [ ] Phase 2 – Gökçe: her CallMeBot key + her own watches (owner `gf`)
+- [ ] Phase 2 – girlfriend: her CallMeBot key + her own watches (owner `gf`)
 - [ ] Phase 3: Cloudflare Worker, refactor watches.yaml → watches fetched from the Worker
 - [ ] Phase 3: generic product-URL parser (for sites Akakçe doesn't list); command to fix a
       broken watch after a ⚠️ message
-- [ ] Gökçe onboarding: CallMeBot key + send `help` to the bot
+- [ ] Girlfriend onboarding: CallMeBot key + send `help` to the bot
 
 ## Rules
 - Every 10 min, 3 s pause between requests, no captcha bypassing

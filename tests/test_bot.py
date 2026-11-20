@@ -286,6 +286,53 @@ def test_quiet_run_sends_nothing():
     assert main.build_message([res], None, {}) == (None, [])
 
 
+def test_telegram_html_conversion():
+    from pricebot.notify import to_telegram_html
+    assert to_telegram_html("*9070 xt* · <OC> & co\n1. 57.000 TL") == (
+        "<b>9070 xt</b> · &lt;OC&gt; &amp; co\n1. 57.000 TL")
+
+
+def test_split_keeps_watch_blocks_together():
+    from pricebot.notify import split
+    text = "\n\n".join(["title"] + [f"*w{i}*\n" + "x" * 90 for i in range(5)])
+    parts = split(text, 250)
+    assert all(len(p) <= 250 for p in parts) and len(parts) > 1
+    assert "\n\n".join(parts) == text
+
+
+def test_channel_order_telegram_ntfy_whatsapp(monkeypatch):
+    from pricebot import notify
+    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID_ME", "NTFY_TOPIC_ME", "PHONE_ME", "CALLMEBOT_APIKEY_ME"):
+        monkeypatch.delenv(k, raising=False)
+    assert notify.channel("me") is None
+    monkeypatch.setenv("PHONE_ME", "+90")
+    monkeypatch.setenv("CALLMEBOT_APIKEY_ME", "1")
+    assert notify.channel("me") == "whatsapp"
+    monkeypatch.setenv("NTFY_TOPIC_ME", "secret-topic")
+    assert notify.channel("me") == "ntfy"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID_ME", "42")
+    assert notify.channel("me") == "telegram"
+
+
+def test_ntfy_payloads_title_body_priority():
+    from pricebot.notify import ntfy_payloads
+    [p] = ntfy_payloads("t", "📉 Fiyat düştü!\n\n*9070 xt* · hedef\n1. 57.000 TL")
+    assert p == {"topic": "t", "title": "📉 Fiyat düştü!",
+                 "message": "9070 xt · hedef\n1. 57.000 TL", "priority": 4}
+    [s] = ntfy_payloads("t", "☀️ Sabah özeti · 09:00\n\n*a*\n1. x")
+    assert s["priority"] == 3
+
+
+def test_ntfy_long_message_is_numbered():
+    from pricebot.notify import ntfy_payloads
+    text = "🌙 Akşam özeti\n\n" + "\n\n".join(f"*w{i}*\n" + "x" * 900 for i in range(4))
+    parts = ntfy_payloads("t", text)
+    assert len(parts) > 1
+    assert [p["title"] for p in parts][-1] == f"🌙 Akşam özeti ({len(parts)}/{len(parts)})"
+    assert all(len(p["message"]) <= 1800 for p in parts)
+
+
 def test_tl_format():
     assert main.tl(61900) == "61.900 TL"
     assert main.tl(1983.65) == "1.983,65 TL"

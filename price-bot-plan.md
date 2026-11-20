@@ -1,7 +1,7 @@
 # Price bot – plan
 
-A bot that checks prices on the stores we care about every hour and sends a WhatsApp
-message when a price drops. Built for my new-PC hunt, so I stop checking sites by hand.
+A bot that checks prices on the stores we care about every 10 minutes and sends a WhatsApp
+message when a price drops, plus a morning and evening summary. Built for my new-PC hunt, so I stop checking sites by hand.
 Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includes CLAUDE.md).
 
 ## Requirements
@@ -19,13 +19,13 @@ Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includ
 
 | Part | Choice |
 | --- | --- |
-| Language | Python 3.12 (requests, beautifulsoup4, PyYAML) for the scraper |
-| Scheduler | GitHub Actions cron, every hour at :17 (private repo) |
+| Language | Python 3.12 (requests, PyYAML) for the scraper |
+| Scheduler | GitHub Actions cron, every 10 min (public repo → unlimited free minutes) |
 | Alerts (outgoing) | WhatsApp via CallMeBot free API – each user activates it with their own number and gets their own API key |
 | Commands (incoming) | WhatsApp Cloud API (Meta) free test number → webhook on a Cloudflare Worker (free tier) |
 | Watch storage | Cloudflare KV (free), keyed by user; Actions reads it through a token-protected Worker endpoint |
 | Users | Allow-list in a Worker secret: phone number → user name (me, Gökçe); unknown numbers are ignored |
-| Price memory | state.json – committed back to the repo by the workflow on each run |
+| Price memory | state.json – kept in the GitHub Actions cache between runs (no commit spam) |
 | Secrets | Per user: phone + CALLMEBOT\_APIKEY\_<USER>; Meta token, verify token, KV/Worker token |
 | Fallback | Shared Google Sheet (one tab per user) read as published CSV, if the Meta route fails |
 
@@ -33,8 +33,18 @@ Personal use, built with Claude Code. Starter code exists (fiyat-bot.zip, includ
 1. Gökçe texts the bot number: `add sephora Chanel Coco Mademoiselle 100ml 4000`.
 2. Meta calls the Worker webhook → Worker looks up her number → saves the watch under
    `gokce` in KV → replies "added ✅" (free: reply inside the 24h window).
-3. Every hour GitHub Actions pulls all users' watches, scrapes, compares with state.json.
+3. Every 10 min GitHub Actions pulls all users' watches, scrapes, compares with state.json.
 4. On a price drop, the bot sends the alert to *that user's* number via *their* CallMeBot key.
+
+### Messages (built in phase 1)
+- **One message per person per run**, all of that person's searches inside it.
+- Each search shows the **top 5 cheapest** matching products, the store of the cheapest one,
+  and a "Daha fazla" link to the Akakçe search (opens the Akakçe app if installed).
+- **Drop alert** (any run): only the products whose price fell ≥ 1% since the owner last
+  heard about them, with new price, old price and %. Small drops add up instead of being lost.
+- **Summary** at 09:00 and 21:00 Turkey time: the top 5 of every search, drops marked.
+- **Newly added search**: its top 5 in the next message ("Takip başladı").
+- **Site errors**: 3 tries per run; if all fail, one ⚠️ message, then quiet until it works again.
 
 ### WhatsApp commands
 - `add <site> <search or URL> [target price]` – sites: amazon, hepsiburada, akakce, sephora,
@@ -107,21 +117,20 @@ public repos also get free unlimited Actions minutes.
 - [ ] Check whether Meta requires a payment method for the test number (if yes and not OK → Google Sheet fallback)
 - [x] Test-run a fetch workflow on GitHub Actions → only Akakçe works; Akakçe becomes the main source
 - [ ] Cloudflare Worker: webhook verify + command parser + KV storage + `/watches` endpoint
-- [ ] Private GitHub repo, upload the zip contents
-- [ ] Secrets: phones, CALLMEBOT\_APIKEY\_<USER>, Meta token, Worker token
-- [ ] Refactor watches.yaml → watches fetched from the Worker, each with an `owner`
-- [ ] Sephora TR parser + generic URL parser
+- [x] Phase 1: Akakçe parser, top 5, drop alerts, morning/evening summary, 10-min schedule, pytest
+- [ ] Secrets: PHONE\_ME, CALLMEBOT\_APIKEY\_ME (later Gökçe's, Meta token, Worker token)
 - [ ] First test: Actions → price-watch → Run workflow
-- [ ] Check that all sites are readable from GitHub's servers (if Amazon/Sephora return a
-      captcha, mark that site as unsupported from the cloud – no PC fallback)
-- [ ] Targets for me: 9070 XT 58,000 TL, 9070 50,000 TL
+- [x] Targets for me: 9070 XT 58,000 TL, 9070 50,000 TL
+- [ ] Phase 2 – Gökçe: her CallMeBot key + her own watches (owner `gf`)
+- [ ] Phase 3: Cloudflare Worker, refactor watches.yaml → watches fetched from the Worker
+- [ ] Phase 3: generic product-URL parser (for sites Akakçe doesn't list); command to fix a
+      broken watch after a ⚠️ message
 - [ ] Gökçe onboarding: CallMeBot key + send `help` to the bot
-- [ ] Optional: Trendyol, n11, Vatan, İncehesap parsers; daily summary message; pytest with HTML fixtures
 
 ## Rules
-- One request per site per hour, 3 s pause between requests, no captcha bypassing
-- First run: one message per watch; after that only when the price drops; 🔥 if below target
-- If a site can't be read 3 times in a row: one warning message to the watch owner
+- Every 10 min, 3 s pause between requests, no captcha bypassing
+- One message per person per run; drops ≥ 1%; summaries 09:00 / 21:00; 🔥 if at/below target
+- If a site can't be read after 3 tries: one warning message, then quiet until it recovers
 - Alerts only go to the watch's owner; users can't see each other's watches
 - Only allow-listed numbers can use commands
 - Secrets and phone numbers never go into the repo

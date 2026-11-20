@@ -2,11 +2,11 @@ name: price-watch
 
 on:
   schedule:
-    - cron: "17 * * * *"  # every hour at :17 (UTC; GitHub may start a few minutes late)
-  workflow_dispatch:       # "Run workflow" button for manual tests
+    - cron: "*/10 * * * *"  # every 10 min (GitHub may start runs a few minutes late)
+  workflow_dispatch:         # "Run workflow" button for manual tests
 
 permissions:
-  contents: write          # to commit state.json back
+  contents: read
 
 concurrency:
   group: price-watch
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +26,15 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Price memory (state.json) lives in the Actions cache, not in git:
+      # a run every 10 min would otherwise mean ~144 commits a day.
+      - name: Restore price memory
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: state-
+
       - name: Check prices
         env:
           # One PHONE_/CALLMEBOT_APIKEY_ pair per watch owner in watches.yaml.
@@ -34,9 +43,8 @@ jobs:
         run: python -m pricebot.main
 
       - name: Save price memory
-        run: |
-          git config user.name "price-watch bot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state.json
-          git diff --cached --quiet || git commit -m "Update price state [skip ci]"
-          git push
+        if: always() && hashFiles('state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: state-${{ github.run_id }}-${{ github.run_attempt }}

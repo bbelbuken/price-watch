@@ -9,6 +9,14 @@
 #   max_price  optional upper limit
 #   target     your dream price -> 🔥 in the message when reached
 #   min_drop_pct  optional, default 1: smaller drops are ignored as noise
+#
+# Messages: each person gets at most one WhatsApp message per run (every ~10 min):
+#   - drop alert: only products that got >= min_drop_pct cheaper (top 5 of each search)
+#   - summary at summary_times (Turkey time): top 5 of every search
+
+settings:
+  summary_times: ["09:00", "21:00"]
+  min_drop_pct: 1
 
 watches:
   - id: rx9070xt

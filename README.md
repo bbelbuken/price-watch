@@ -1,8 +1,9 @@
 # price-watch
 
-Hourly price bot: searches [Akakçe](https://www.akakce.com) for each watch in
-[watches.yaml](watches.yaml) and sends a WhatsApp message (via CallMeBot) when the
-cheapest matching product gets cheaper. Runs free on GitHub Actions. Plan: [price-bot-plan.md](price-bot-plan.md).
+Price bot: every 10 minutes it searches [Akakçe](https://www.akakce.com) for each watch in
+[watches.yaml](watches.yaml) and sends one WhatsApp message per person (via CallMeBot) when
+any of the top 5 products gets ≥ 1% cheaper, plus a summary at 09:00 and 21:00 (Turkey time).
+Runs free on GitHub Actions. Plan: [price-bot-plan.md](price-bot-plan.md).
 
 ## Setup
 1. **CallMeBot** (once per person, from their own phone): follow
@@ -10,8 +11,8 @@ cheapest matching product gets cheaper. Runs free on GitHub Actions. Plan: [pric
    send the activation message, wait for the API key.
 2. **GitHub Secrets** (repo → Settings → Secrets and variables → Actions):
    `PHONE_ME` (e.g. `+905551112233`) and `CALLMEBOT_APIKEY_ME`.
-3. Push, then Actions → **price-watch** → **Run workflow**. You get one "Takip başladı"
-   message per watch; after that only price drops.
+3. Push, then Actions → **price-watch** → **Run workflow**. The first run sends a summary
+   with the top 5 of every watch; after that only drops and the 09:00 / 21:00 summaries.
 
 ## Adding a person
 Use a new `owner` name in watches.yaml (e.g. `owner: gf`), add secrets
@@ -23,5 +24,6 @@ Use a new `owner` name in watches.yaml (e.g. `owner: gf`), add secrets
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python -m pytest -q
-.venv\Scripts\python -m pricebot.main --dry-run
+.venv\Scripts\python -m pricebot.main --dry-run            # what a run would send
+.venv\Scripts\python -m pricebot.main --dry-run --summary  # force a summary
 ```

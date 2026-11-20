@@ -29,6 +29,11 @@ def matches(product: Product, watch: dict) -> bool:
     return True
 
 
+def ranked(products: list[Product], watch: dict) -> list[Product]:
+    """All matching products, cheapest first."""
+    return sorted((p for p in products if matches(p, watch)), key=lambda p: p.price)
+
+
 def cheapest(products: list[Product], watch: dict) -> Product | None:
-    candidates = [p for p in products if matches(p, watch)]
-    return min(candidates, key=lambda p: p.price) if candidates else None
+    candidates = ranked(products, watch)
+    return candidates[0] if candidates else None

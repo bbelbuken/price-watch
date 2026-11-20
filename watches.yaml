@@ -1,0 +1,28 @@
+# What to watch. One block per watch; the bot searches Akakçe for `query` every hour.
+#
+#   id         unique short name (used in state.json)
+#   owner      who gets the alert -> needs secrets PHONE_<OWNER> and CALLMEBOT_APIKEY_<OWNER>
+#   query      what you'd type into Akakçe's search box
+#   include    every term must appear in the product name (spaces/case ignored)
+#   exclude    product is skipped if any term appears (e.g. prebuilt PCs, other models)
+#   min_price  ignore listings below this (accessories, fakes, testers)
+#   max_price  optional upper limit
+#   target     your dream price -> 🔥 in the message when reached
+#   min_drop_pct  optional, default 1: smaller drops are ignored as noise
+
+watches:
+  - id: rx9070xt
+    owner: me
+    query: 9070 xt
+    include: ["9070 xt"]
+    exclude: ["laptop", "notebook", "bilgisayar", "sistem", "kasa"]
+    min_price: 30000
+    target: 58000
+
+  - id: rx9070
+    owner: me
+    query: rx 9070 ekran kartı
+    include: ["9070"]
+    exclude: ["9070 xt", "9070 gre", "laptop", "notebook", "bilgisayar", "sistem", "kasa"]
+    min_price: 25000
+    target: 50000

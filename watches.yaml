@@ -34,5 +34,5 @@ watches:
   owner: me
   query: 9800x3d
   include: [9800x3d]
-  min_price: 72000
-  exclude: [Kasa, Psu]
+  category: islemci
+  min_price: 13600

@@ -140,7 +140,8 @@ public repos also get free unlimited Actions minutes.
       GitHub runs do the Akakçe work (new watch setup ~1 min, prices now, summary) and price runs
       write back cheapest price + seller lists. After a change the new list is sent once in the
       next price run (≤ 10 min).
-- [ ] Cloudflare setup (README "Instant replies") and first real test in Telegram
+- [x] Cloudflare setup (Worker `price-watch-bot`, D1, webhook) – tested in Telegram 2026-11-21, works
+- [ ] 2027-02-18: GitHub token (cron-job.org + Worker GITHUB_TOKEN) expires – renew both
 - [ ] Phase 3: generic product-URL parser (for sites Akakçe doesn't list); command to fix a
       broken watch after a ⚠️ message
 - [ ] Girlfriend onboarding: CallMeBot key + send `help` to the bot

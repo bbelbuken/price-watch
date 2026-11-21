@@ -40,6 +40,42 @@ def test_setup_picks_phrase_and_auto_min():
     assert [p.code for p in matching] == [1, 2, 3]
 
 
+def C(code, price, name, category):
+    return Product(code, name, price, f"https://www.akakce.com/{category}/en-ucuz-x,{code}.html", 5)
+
+
+def test_setup_picks_the_category_of_the_best_match():
+    """'9800x3d': the CPU comes first in Akakçe's relevance order, then gaming PCs with it inside."""
+    relevance = [C(1, 22649, "AMD Ryzen 7 9800X3D İşlemci", "islemci"),
+                 C(2, 22670, "AMD Ryzen 7 9800X3D Kutusuz İşlemci", "islemci"),
+                 C(3, 140999, "Asus ROG G700 Ryzen 7 9800X3D 16 GB", "oyun-bilgisayari"),
+                 C(4, 191999, "Asus ROG G700 Ryzen 7 9800X3D RTX5080", "oyun-bilgisayari"),
+                 C(5, 94867, "Xaser Cube X270 Ryzen 7 9800X3D", "oyun-bilgisayari"),
+                 Product(6, "9800X3D reklam", 1, "https://www.akakce.com", 1)]  # no link
+    w = {"id": "me-1", "owner": "me", "query": "9800x3d"}
+    matching = commands.setup_watch(w, lambda x: relevance, lambda x: relevance)
+    assert w["category"] == "islemci" and "min_price" not in w  # only 2 CPUs: no guessing needed
+    assert [p.code for p in matching] == [1, 2]
+
+
+def test_setup_trusts_akakce_when_the_words_never_appear():
+    """'1000w psu': Akakçe finds PSUs, but their names say '1000 W Power Supply'."""
+    relevance = [C(1, 4783, "Gametech GTP-1000 1000 W Gen5 Power Supply", "power-supply"),
+                 C(2, 5334, "GAMETECH 1000W 80 Plus Gold Atx 3.0", "power-supply"),
+                 C(3, 4989, "Powerboost Sea View 1000W PSU'lu Kasa", "bilgisayar-kasasi"),
+                 C(4, 5528, "Antec CSK1000 Pro Gen5.1 1000 W Power Supply", "power-supply")]
+    w = {"id": "me-1", "owner": "me", "query": "1000w psu", "include": ["1000w psu"]}
+    matching = commands.setup_watch(w, lambda x: relevance, lambda x: relevance)
+    assert "include" not in w and w["category"] == "power-supply"
+    assert [p.code for p in matching] == [1, 2, 4]  # the case with a PSU is gone
+
+
+def test_category_from_product_link():
+    assert C(1, 1, "x", "islemci").category == "islemci"
+    assert Product(1, "x", 1, "https://www.akakce.com", 1).category is None
+    assert Product(1, "x", 1, "", 1).category is None
+
+
 def test_setup_falls_back_to_words_and_keeps_given_min():
     perfume = [P(i, 5000 + i, "Chanel Coco Mademoiselle EDP 100 ml") for i in range(5)]
     w = {"id": "gf-1", "owner": "gf", "query": "chanel coco 100 ml", "min_price": 1000}

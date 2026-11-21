@@ -295,7 +295,13 @@ function summaryText(w) {
     `💰 Aralık: ${b.min_price ? lira(b.min_price) : "0₺"} – ${b.max_price ? lira(b.max_price) : "sınırsız"}`,
     `🚫 Hariç: ${(b.exclude || []).join(", ") || "yok"}`,
     `🏪 Satıcılar: ${(b.sellers || []).join(", ") || "sadece genel liste"}`,
+    ...(b.category ? [`📂 Kategori: ${categoryName(b.category)} (diğer kategoriler gösterilmez)`] : []),
   ].join("\n");
+}
+
+function categoryName(slug) {
+  const s = String(slug).replace(/-/g, " ");
+  return s.charAt(0).toLocaleUpperCase("tr-TR") + s.slice(1);
 }
 
 function watchScreen(w, note) {
@@ -306,6 +312,7 @@ function watchScreen(w, note) {
       [["🎯 Hedef", `t:${id}`], ["💰 Fiyat aralığı", `r:${id}`]],
       [["🚫 Hariç kelimeler", `x:${id}`], ["🏪 Satıcılar", `s:${id}`]],
       [["📊 Şimdiki fiyatlar", `p:${id}`], ["🗑 Takibi sil", `d:${id}`]],
+      ...(w.body.category ? [[[`❌ Kategori filtresini kaldır (${categoryName(w.body.category)})`, `c-:${id}`]]] : []),
       nav("l"),
     ],
   };
@@ -426,6 +433,7 @@ async function onButton(data, owner, chat, env, ctx) {
       return change(excludeScreen(w, `✅ '${word}' kaldırıldı`));
     }
     case "x0": delete b.exclude; return change(excludeScreen(w, "✅ Hariç kelimeler temizlendi"));
+    case "c-": delete b.category; return change(watchScreen(w, "✅ Kategori filtresi kaldırıldı – her kategoriden ürünler gelir"));
     case "s":
       if (!w.meta.seller_options) await addJob(env, ctx, { type: "sellers", owner, chat, watch: id });
       return sellersScreen(w);

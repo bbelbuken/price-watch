@@ -16,6 +16,10 @@ def compact(text: str) -> str:
 
 
 def matches(product: Product, watch: dict) -> bool:
+    # category: only products from this Akakçe category ("islemci" – not the gaming PCs that
+    # have the CPU in their name). Listings without a product link have no category: skipped.
+    if watch.get("category") and product.category != watch["category"]:
+        return False
     name = compact(product.name)
     if not all(compact(term) in name for term in watch.get("include") or []):
         return False

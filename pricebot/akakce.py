@@ -42,6 +42,12 @@ class Product:
     offer_count: int
     seller: str = ""  # set when the price comes from a chosen seller's offer
 
+    @property
+    def category(self) -> str | None:
+        """Akakçe's category from the product link: /islemci/en-ucuz-… -> 'islemci'."""
+        parts = self.url.removeprefix(BASE).split("/")
+        return parts[1] if len(parts) > 2 and parts[1] else None
+
 
 @dataclass
 class Offer:

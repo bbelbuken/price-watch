@@ -437,7 +437,7 @@ def seller_view(watch: dict) -> dict:
     return {**watch, "id": watch["id"] + SELLER_VIEW, "name": f"{label(watch)} · {sellers}", "target": watch.get("target")}
 
 
-FINGERPRINT_KEYS = ("query", "url", "include", "exclude", "min_price", "max_price", "sellers")
+FINGERPRINT_KEYS = ("query", "url", "include", "exclude", "min_price", "max_price", "sellers", "category")
 
 
 def fingerprint(watch: dict) -> str:

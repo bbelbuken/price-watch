@@ -12,7 +12,7 @@ from __future__ import annotations
 import statistics
 
 from . import akakce
-from .matching import compact, ranked
+from .matching import compact, matches, ranked
 
 AUTO_MIN_FACTOR = 0.6  # new watch without "min": ignore listings under 60% of the typical price
 
@@ -36,18 +36,28 @@ def setup_watch(watch: dict, fetch, probe=None) -> list:
     """Finish a watch added in the menu (in place). Returns its matching products, cheapest
     first – empty if nothing matches. Raises akakce.AkakceError if Akakçe can't be read."""
     probe = probe or default_probe
-    relevant = probe(watch)
+    relevant = probe(watch)  # Akakçe's relevance order: the real product first
     if watch.get("query"):
-        # Prefer the words side by side ("iphone 16" – not "iPhone 17/16/15 uyumlu SSD");
-        # fall back to "all words anywhere" for queries like "chanel coco 100 ml".
-        phrase = {**watch, "include": [watch["query"]]}
-        words = {**watch, "include": watch["query"].split()}
-        watch["include"] = phrase["include"] if len(ranked(relevant, phrase)) >= 3 else words["include"]
+        # 1. The category of Akakçe's most relevant result: "9800x3d" -> islemci (not the
+        #    gaming PCs with a 9800X3D inside), "1000w psu" -> power-supply (not cases with one).
+        first = next((p for p in relevant if p.category), None)
+        if first and "category" not in watch:
+            watch["category"] = first.category
+        # 2. Within it, prefer the words side by side ("iphone 16" – not "iPhone 17/16/15
+        #    uyumlu SSD"), else all words anywhere ("chanel coco 100 ml"), else none – Akakçe
+        #    calls them "1000 W Power Supply", so trust its search plus the category.
+        for include in ([watch["query"]], watch["query"].split(), []):
+            if not include or len(ranked(relevant, {**watch, "include": include})) >= 2:
+                break
+        if include:
+            watch["include"] = include
+        else:
+            watch.pop("include", None)
     if "min_price" not in watch:
         # Cases, screen protectors and "uyumlu" accessories are far cheaper than the real thing
         # and fill a cheapest-first page. Akakçe's relevance order lists the real products
         # first, so 60% of their median price is a good lower limit.
-        sample = ranked(relevant, watch)[:12]
+        sample = [p for p in relevant if matches(p, watch)][:12]
         if len(sample) >= 3:
             auto_min = int(statistics.median(p.price for p in sample) * AUTO_MIN_FACTOR / 100) * 100
             if auto_min > 0:

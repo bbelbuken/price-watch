@@ -184,6 +184,15 @@ test("excluded words: add several, remove one, clear", async () => {
   eq(watch("gf-1").body.exclude, undefined);
 });
 
+test("category filter is shown and can be removed", async () => {
+  addWatch("gf-1", "gf", { query: "9800x3d", category: "islemci" });
+  await tap("w:gf-1");
+  ok(screen().text.includes("📂 Kategori: İslemci"), "shown");
+  await press("Kategori filtresini kaldır");
+  eq(watch("gf-1").body.category, undefined);
+  ok(!screen().text.includes("📂"), "gone");
+});
+
 test("sellers: instant from the price run's list, tap to add and remove", async () => {
   addWatch("gf-1", "gf", {}, { seller_options: [["Pttavm", 81997], ["Amazon Türkiye", 84999], ["Hepsiburada", 86900]] });
   await tap("s:gf-1");

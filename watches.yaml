@@ -27,3 +27,8 @@ watches:
   exclude: [9070 xt, 9070 gre]
   min_price: 25000
   target: 50000
+- id: me-1
+  owner: me
+  query: 9800x3d
+  include: [9800x3d]
+  min_price: 72000

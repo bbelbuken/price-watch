@@ -43,6 +43,24 @@ watches:
     min_price: 25000
     target: 50000
 
+  # --- Her watches (owner: gf -> secret TELEGRAM_CHAT_ID_GF) ---
+  - id: iphone17
+    owner: gf
+    name: iPhone 17
+    query: iphone 17
+    include: ["iphone 17"]
+    exclude: ["pro", "max", "air", "plus", "17e", "kılıf", "yenilenmiş", "teşhir", "ssd"]
+    min_price: 50000           # skips accessories ("iPhone 17 uyumlu" SSDs, cases)
+
+  # Another example – uncomment and change:
+  # - id: parfum1
+  #   owner: gf
+  #   query: chanel coco mademoiselle edp 100 ml
+  #   include: ["coco mademoiselle", "100 ml"]
+  #   exclude: ["tester", "intense", "vücut", "deodorant"]
+  #   min_price: 3000          # skips fakes / testers / samples
+  #   target: 5000
+
   # Example for a broad search – uncomment to use:
   # - id: psu1000
   #   owner: me

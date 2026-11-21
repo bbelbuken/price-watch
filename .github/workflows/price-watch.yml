@@ -43,6 +43,8 @@ jobs:
           # Telegram: one bot token + one chat id per person.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_ME: ${{ secrets.TELEGRAM_CHAT_ID_ME }}
+          TELEGRAM_CHAT_ID_GF: ${{ secrets.TELEGRAM_CHAT_ID_GF }}
+          NTFY_TOPIC_GF: ${{ secrets.NTFY_TOPIC_GF }}
           # WhatsApp via CallMeBot (used for an owner without a Telegram chat id).
           PHONE_ME: ${{ secrets.PHONE_ME }}
           CALLMEBOT_APIKEY_ME: ${{ secrets.CALLMEBOT_APIKEY_ME }}

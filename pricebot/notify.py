@@ -102,6 +102,101 @@ def _send_telegram(owner: str, text: str) -> bool:
     return True
 
 
+# ---------------------------------------------------------------- Telegram (outgoing extras)
+
+def _telegram_call(method: str, payload: dict) -> dict | None:
+    url = f"https://api.telegram.org/bot{_env('TELEGRAM_BOT_TOKEN')}/{method}"
+    try:
+        data = requests.post(url, json=payload, timeout=30).json()
+    except (requests.RequestException, ValueError) as exc:
+        print(f"Telegram {method} failed: {type(exc).__name__}")
+        return None
+    if not data.get("ok"):
+        print(f"Telegram {method} error: {data.get('description')}")
+        return None
+    return data
+
+
+def telegram_reply(chat_id: str, text: str, buttons=None) -> bool:
+    """A message to one chat; `buttons` = rows of (label, callback data) for the Worker's menu."""
+    payload = {
+        "chat_id": chat_id,
+        "text": to_telegram_html(text[: TELEGRAM_LIMIT - 500]),
+        "parse_mode": "HTML",
+        "link_preview_options": {"is_disabled": True},
+    }
+    if buttons:
+        payload["reply_markup"] = {
+            "inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row] for row in buttons]
+        }
+    return _telegram_call("sendMessage", payload) is not None
+
+
+def telegram_set_commands(commands: list[tuple[str, str]]) -> bool:
+    """Show the commands in Telegram's '/' menu."""
+    data = _telegram_call("setMyCommands", {
+        "commands": [{"command": c, "description": d} for c, d in commands],
+    })
+    return data is not None
+
+
+# ---------------------------------------------------------------- Cloudflare Worker (menu + watch list)
+# The Telegram menu runs in the Worker (cloudflare/worker.js) and keeps the watch list in its
+# D1 database. GitHub runs read the list from there and do the work that needs Akakçe.
+
+def worker_enabled() -> bool:
+    return bool(_env("INBOX_URL") and _env("INBOX_TOKEN"))
+
+
+def _worker(path: str, body: dict | None = None) -> dict | None:
+    url = _env("INBOX_URL").rstrip("/") + path
+    try:
+        resp = requests.request("POST" if body is not None else "GET", url, json=body, timeout=30,
+                                headers={"Authorization": f"Bearer {_env('INBOX_TOKEN')}"})
+    except requests.RequestException as exc:
+        print(f"worker {path} failed: {type(exc).__name__}")
+        return None
+    if resp.status_code != 200:
+        print(f"worker {path} HTTP {resp.status_code}")
+        return None
+    try:
+        return resp.json()
+    except ValueError:
+        return None
+
+
+def watches_fetch() -> list[dict] | None:
+    """[{id, owner, pos, body, meta}] – None if the Worker can't be reached."""
+    data = _worker("/watches")
+    return data.get("watches") if data is not None else None
+
+
+def watches_import(bodies: list[dict]) -> bool:
+    return _worker("/watches/import", {"watches": bodies}) is not None
+
+
+def watches_put(bodies: list[dict]) -> bool:
+    return _worker("/watches/put", {"watches": bodies}) is not None
+
+
+def watches_delete(ids: list[str]) -> bool:
+    return _worker("/watches/delete", {"ids": ids}) is not None
+
+
+def watches_meta(metas: dict[str, dict]) -> bool:
+    return not metas or _worker("/watches/meta", {"metas": metas}) is not None
+
+
+def jobs_fetch() -> list[dict]:
+    data = _worker("/jobs")
+    return data.get("jobs", []) if data else []
+
+
+def jobs_ack(ids: list[int]) -> None:
+    if ids:
+        _worker("/jobs/ack", {"ids": ids})
+
+
 NTFY_LIMIT = 1800  # ntfy allows 4096 bytes; Turkish letters/emoji take 2-4 bytes each
 
 

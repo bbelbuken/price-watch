@@ -40,6 +40,7 @@ class Product:
     price: float
     url: str
     offer_count: int
+    seller: str = ""  # set when the price comes from a chosen seller's offer
 
 
 @dataclass
@@ -143,14 +144,17 @@ def _get(url: str) -> str:
     return resp.text
 
 
-def search_url(query: str, min_price: float | None = None, max_price: float | None = None) -> str:
+def search_url(
+    query: str, min_price: float | None = None, max_price: float | None = None, sort: int = 2
+) -> str:
     """Akakçe search sorted cheapest first (s=2), limited to [p1, p2] TL.
 
     Without the price filter, "1000w psu" sorted by price would be a page of cables.
     Queries Akakçe maps to a category (e.g. "rx 9070 ekran kartı") are redirected to the
     category page and lose these parameters; those pages are small and we sort locally.
+    sort=1 is Akakçe's default "relevance" order (real products first, accessories later).
     """
-    url = f"{BASE}/arama/?q={quote_plus(query)}&s=2"
+    url = f"{BASE}/arama/?q={quote_plus(query)}&s={sort}"
     if min_price:
         url += f"&p1={int(min_price)}"
     if max_price:
@@ -158,8 +162,10 @@ def search_url(query: str, min_price: float | None = None, max_price: float | No
     return url
 
 
-def search(query: str, min_price: float | None = None, max_price: float | None = None) -> list[Product]:
-    return parse_search(_get(search_url(query, min_price, max_price)))
+def search(
+    query: str, min_price: float | None = None, max_price: float | None = None, sort: int = 2
+) -> list[Product]:
+    return parse_search(_get(search_url(query, min_price, max_price, sort)))
 
 
 _CATEGORY_RE = re.compile(r"^(https://www\.akakce\.com/[^?#]*?)(?:,\d+(?:,\d+)?)?\.html([^?#]*)")

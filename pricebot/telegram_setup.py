@@ -5,6 +5,9 @@
 3. Run:  .venv\\Scripts\\python -m pricebot.telegram_setup
    Paste the token when asked. It lists everyone who wrote to the bot with their chat id.
    Optionally send a test message.
+4. Instant replies (Cloudflare Worker, see README):
+         python -m pricebot.telegram_setup --webhook https://<worker>.workers.dev/telegram
+   back to polling: --no-webhook
 
 The token is only used locally for these requests and is not saved anywhere.
 """
@@ -14,6 +17,7 @@ from __future__ import annotations
 import getpass
 import os
 import re
+import secrets
 import sys
 import time
 
@@ -64,10 +68,41 @@ def call(token: str, method: str, **payload) -> dict:
     raise SystemExit("Telegram keeps answering with a server error; try again in a few minutes.")
 
 
+def webhook(token: str, url: str | None) -> int:
+    """--webhook URL: send Telegram updates to the Cloudflare Worker (instant replies).
+    --no-webhook: back to polling (getUpdates) – also needed to list chat ids again."""
+    if not url:
+        call(token, "deleteWebhook")
+        print("Webhook removed. The bot reads messages every run again (getUpdates).")
+        return 0
+    secret = secrets.token_urlsafe(24)
+    call(token, "setWebhook", url=url, secret_token=secret,
+         allowed_updates=["message", "callback_query"], drop_pending_updates=False)
+    print(f"Webhook set to {url}\n")
+    print("Put this into the Worker as the secret TELEGRAM_SECRET (Settings → Variables and Secrets):")
+    print(f"\n    {secret}\n")
+    print("Until it's there the Worker answers 403 and Telegram keeps retrying – nothing is lost.")
+    info = call(token, "getWebhookInfo")
+    if info.get("last_error_message"):
+        print(f"Telegram's last webhook error: {info['last_error_message']}")
+    return 0
+
+
 def main() -> int:
+    args = sys.argv[1:]
     token = clean_token(os.environ.get("TELEGRAM_BOT_TOKEN") or getpass.getpass("Bot token (hidden): "))
     me = call(token, "getMe")
     print(f"Bot: @{me['username']}\n")
+    if args[:1] == ["--webhook"] and len(args) > 1:
+        return webhook(token, args[1])
+    if args[:1] == ["--no-webhook"]:
+        return webhook(token, None)
+    if args:
+        raise SystemExit("usage: telegram_setup [--webhook https://….workers.dev/telegram | --no-webhook]")
+    if call(token, "getWebhookInfo").get("url"):
+        print("A webhook (Cloudflare Worker) is set, so messages go there and can't be listed here.")
+        print("Chat ids are also shown by @userinfobot. To list them here: --no-webhook, run, --webhook again.")
+        return 1
 
     chats = {}
     for update in call(token, "getUpdates"):

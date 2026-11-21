@@ -131,7 +131,16 @@ public repos also get free unlimited Actions minutes.
 - [ ] Revoke the Telegram token that was shown in chat (@BotFather → /revoke)
 - [x] Targets for me: 9070 XT 58,000 TL, 9070 50,000 TL
 - [ ] Phase 2 – girlfriend: her own ntfy topic (secret NTFY\_TOPIC\_GF) + her own watches (owner `gf`)
-- [ ] Phase 3: Cloudflare Worker, refactor watches.yaml → watches fetched from the Worker
+- [x] Phase 2 (2026-11-21): her own chat id + iPhone 17 watch
+- [x] Phase 3 (2026-11-21): Telegram commands instead of Meta/Cloudflare – read each run via
+      getUpdates (~10 min reply delay), watches.yaml committed by the workflow; chosen-seller
+      second top 5 (/saticilar, /satici) because the overall cheapest is often Pttavm
+- [x] Button menu (2026-11-21): every setting can be set and removed, ↩ Geri / 🏠 Ana menü / "0"
+      everywhere. The menu runs in a free Cloudflare Worker (instant) with the watch list in D1;
+      GitHub runs do the Akakçe work (new watch setup ~1 min, prices now, summary) and price runs
+      write back cheapest price + seller lists. After a change the new list is sent once in the
+      next price run (≤ 10 min).
+- [ ] Cloudflare setup (README "Instant replies") and first real test in Telegram
 - [ ] Phase 3: generic product-URL parser (for sites Akakçe doesn't list); command to fix a
       broken watch after a ⚠️ message
 - [ ] Girlfriend onboarding: CallMeBot key + send `help` to the bot

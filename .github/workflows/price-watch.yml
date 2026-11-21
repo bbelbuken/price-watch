@@ -1,15 +1,25 @@
 name: price-watch
+run-name: ${{ inputs.mode == 'commands' && 'telegram' || 'price-watch' }}
 
 on:
   schedule:
     - cron: "*/10 * * * *"  # every 10 min (GitHub may start runs a few minutes late)
-  workflow_dispatch:         # "Run workflow" button for manual tests
+  workflow_dispatch:         # cron-job.org (no inputs = all), the Cloudflare relay (mode=commands), manual runs
+    inputs:
+      mode:
+        description: "all = check prices + Telegram; commands = only answer Telegram (fast)"
+        type: choice
+        options: [all, commands]
+        default: all
 
 permissions:
-  contents: read
+  contents: write          # the bot commits watches.yaml when Telegram commands change it
 
+# Price runs and Telegram runs queue separately, so a button never waits for a price check.
+# They don't share memory: price runs use state.json (Actions cache), Telegram runs keep the
+# menu in the Cloudflare Worker. Each queue keeps one waiting run; messages wait in the Worker.
 concurrency:
-  group: price-watch
+  group: price-watch-${{ inputs.mode || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,6 +39,7 @@ jobs:
       # Price memory (state.json) lives in the Actions cache, not in git:
       # a run every 10 min would otherwise mean ~144 commits a day.
       - name: Restore price memory
+        if: inputs.mode != 'commands'
         uses: actions/cache/restore@v4
         with:
           path: state.json
@@ -48,10 +59,28 @@ jobs:
           # WhatsApp via CallMeBot (used for an owner without a Telegram chat id).
           PHONE_ME: ${{ secrets.PHONE_ME }}
           CALLMEBOT_APIKEY_ME: ${{ secrets.CALLMEBOT_APIKEY_ME }}
-        run: python -m pricebot.main
+          # Cloudflare relay for instant Telegram replies (without these: getUpdates every run).
+          INBOX_URL: ${{ secrets.INBOX_URL }}
+          INBOX_TOKEN: ${{ secrets.INBOX_TOKEN }}
+          MODE: ${{ inputs.mode || 'all' }}
+        run: python -m pricebot.main --mode "$MODE"
+
+      - name: Save watch list changes (Telegram commands)
+        if: always()
+        run: |
+          if git diff --quiet -- watches.yaml; then exit 0; fi
+          git config user.name "price-watch bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add watches.yaml
+          git commit -q -m "Update watches from Telegram commands"
+          for i in 1 2 3; do
+            git pull -q --rebase && git push -q && exit 0
+            sleep 5
+          done
+          echo "::error::could not push watches.yaml"; exit 1
 
       - name: Save price memory
-        if: always() && hashFiles('state.json') != ''
+        if: always() && inputs.mode != 'commands' && hashFiles('state.json') != ''
         uses: actions/cache/save@v4
         with:
           path: state.json

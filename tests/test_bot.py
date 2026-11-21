@@ -351,6 +351,7 @@ def test_ntfy_long_message_is_numbered():
      "9070 xt", "Asus Prime OC"),
     ("PowerColor RX 9070 XT Reaper 16G-A 256 Bit GDDR6 16 GB Ekran Kartı", "9070 xt", "PowerColor Reaper 16G-A"),
     ("Chanel Coco Mademoiselle EDP 100 ml Kadın Parfüm", "coco mademoiselle", "Chanel EDP 100 ml Kadın Parfüm"),
+    ("iPhone 16 Plus 256 GB Siyah", "iphone 16", "Plus 256 GB Siyah"),  # phones keep the capacity
     ("Antec CSK1000 Pro Gen5.1 1000 W Power Supply", None, "Antec CSK1000 Pro Gen5.1 1000…"),
 ])
 def test_short_name(name, query, expected):

@@ -1,69 +1,29 @@
-# What to watch. One block per watch; the bot checks Akakçe every ~10 minutes.
-#
-#   id         unique short name (used in state.json)
-#   owner      who gets the alert -> needs secrets PHONE_<OWNER> and CALLMEBOT_APIKEY_<OWNER>
-#
-#   Where to look – exactly one of:
-#   query      what you'd type into Akakçe's search box (good for specific models: "9070 xt")
-#   url        an Akakçe category page, optionally with its filters selected, for broad
-#              things (PSUs, SSDs...): open akakce.com, pick the category + filters
-#              (e.g. Power Supply → 1000 W), copy the address. Sorting is added by the bot.
-#   name       optional label for messages (default: the query or the category name)
-#
-#   include    every term must appear in the product name (spaces/case ignored)
-#   exclude    product is skipped if any term appears (e.g. prebuilt PCs, other models)
-#   min_price  ignore listings below this (accessories, fakes, testers)
-#   max_price  optional upper limit
-#   target     your dream price -> 🔥 in the message when reached
-#   min_drop_pct  optional, default 1: smaller drops are ignored as noise
-#
-# Messages: each person gets at most one WhatsApp message per run, all searches inside:
-#   - alert: products in the current top 5 that got >= min_drop_pct cheaper, or that
-#     entered the top 5 for the first time (🆕)
-#   - summary at summary_times (Turkey time): top 5 of every watch
+# Watch list – also edited by the bot when you use Telegram commands (/ekle, /sil, ...).
+# You can still edit it by hand; field reference: README.md ("watches.yaml fields").
+# Pull before editing locally (git pull): the bot commits its changes to this file.
 
 settings:
-  summary_times: ["09:00", "21:00"]
+  summary_times: ['09:00', '21:00']
   min_drop_pct: 1
-
 watches:
-  - id: rx9070xt
-    owner: me
-    query: 9070 xt
-    include: ["9070 xt"]
-    exclude: ["laptop", "notebook", "bilgisayar", "sistem", "kasa"]
-    min_price: 30000
-    target: 58000
-
-  - id: rx9070
-    owner: me
-    name: RX 9070
-    url: https://www.akakce.com/ekran-karti/rx-9070.html
-    exclude: ["9070 xt", "9070 gre"]
-    min_price: 25000
-    target: 50000
-
-  # --- Her watches (owner: gf -> secret TELEGRAM_CHAT_ID_GF) ---
-  - id: iphone17
-    owner: gf
-    name: iPhone 17
-    query: iphone 17
-    include: ["iphone 17"]
-    exclude: ["pro", "max", "air", "plus", "17e", "kılıf", "yenilenmiş", "teşhir", "ssd"]
-    min_price: 50000           # skips accessories ("iPhone 17 uyumlu" SSDs, cases)
-
-  # Another example – uncomment and change:
-  # - id: parfum1
-  #   owner: gf
-  #   query: chanel coco mademoiselle edp 100 ml
-  #   include: ["coco mademoiselle", "100 ml"]
-  #   exclude: ["tester", "intense", "vücut", "deodorant"]
-  #   min_price: 3000          # skips fakes / testers / samples
-  #   target: 5000
-
-  # Example for a broad search – uncomment to use:
-  # - id: psu1000
-  #   owner: me
-  #   name: 1000W PSU
-  #   url: https://www.akakce.com/power-supply/1000-w-power-supply.html
-  #   min_price: 3000
+- id: iphone17
+  owner: gf
+  name: iPhone 17
+  query: iphone 17
+  include: [iphone 17]
+  exclude: [pro, max, air, plus, 17e, kılıf, yenilenmiş, teşhir, ssd]
+  min_price: 50000
+- id: rx9070xt
+  owner: me
+  query: 9070 xt
+  include: [9070 xt]
+  exclude: [laptop, notebook, bilgisayar, sistem, kasa]
+  min_price: 30000
+  target: 58000
+- id: rx9070
+  owner: me
+  name: RX 9070
+  url: https://www.akakce.com/ekran-karti/rx-9070.html
+  exclude: [9070 xt, 9070 gre]
+  min_price: 25000
+  target: 50000

@@ -14,6 +14,7 @@ watches:
   exclude: [pro, max, air, plus, 17e, kılıf, yenilenmiş, teşhir, ssd]
   min_price: 50000
 - {id: gf-1, owner: gf, query: iphone 17 amazon fiyatları, category: cep-telefonu, min_price: 63700}
+- {id: gf-2, owner: gf, query: mediamarkt iphone 17, category: para-kasasi}
 - id: rx9070xt
   owner: me
   query: 9070 xt

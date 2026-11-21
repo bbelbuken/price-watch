@@ -36,4 +36,3 @@ watches:
   include: [9800x3d]
   category: islemci
   min_price: 13600
-  exclude: [Kasa]

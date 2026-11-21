@@ -37,7 +37,25 @@ STATE_FILE = ROOT / "state.json"
 TURKEY = timezone(timedelta(hours=3))  # no DST in Turkey since 2016
 REQUEST_PAUSE_S = 3  # politeness pause between requests to Akakçe
 RETRY_WAITS_S = (10, 30)  # 3 tries in total per run
-TOP_N = 5
+TOP_N = 5  # default; a watch can show 5 / 10 / 15 / 20 ("top_n", chosen in the menu)
+
+
+def top_n(watch: dict) -> int:
+    """How many of the cheapest products a watch shows – and the only ones that can alert."""
+    try:
+        return max(1, int(watch.get("top_n") or TOP_N))
+    except (TypeError, ValueError):
+        return TOP_N
+
+
+def to_n(n: int) -> str:
+    """Turkish dative: 5'e, 10'a, 15'e, 20'ye, 30'a, 40'a, 50'ye …"""
+    last = str(n)[-1] if n % 10 else str(n)[-2]
+    if n % 10 == 0:
+        suffix = {"1": "a", "2": "ye", "3": "a", "4": "a", "5": "ye", "6": "a", "7": "e", "8": "e", "9": "a"}[last]
+    else:
+        suffix = {"1": "e", "2": "ye", "3": "e", "4": "e", "5": "e", "6": "ya", "7": "ye", "8": "e", "9": "a"}[last]
+    return f"{n}'{suffix}"
 NAME_MAX = 30
 DEFAULTS = {"summary_times": ["09:00", "21:00"], "min_drop_pct": 1.0}
 
@@ -195,6 +213,8 @@ def save_state(state: dict, path: Path = STATE_FILE) -> None:
 class Drop:
     product: akakce.Product
     before: float | None  # price we last told the owner about; None = never seen, just entered the top 5
+    entered: bool = False  # wasn't in the last top 5, now is
+    first: bool = False  # took 1st place (the cheapest) from another product
 
 
 @dataclass
@@ -233,16 +253,25 @@ def evaluate(
     """
     today = today or datetime.now(TURKEY).date().isoformat()
     items: dict = entry.setdefault("items", {})
-    res = WatchResult(watch, top=matching[:TOP_N], is_new=not items)
+    res = WatchResult(watch, top=matching[:top_n(watch)], is_new=not items)
     pct = float(watch.get("min_drop_pct", min_drop_pct))
+    last_top = entry.get("top")  # codes of the previous run's top 5 (None before the first)
 
     if not res.is_new:
-        for p in res.top:
-            old = items.get(str(p.code))
+        for i, p in enumerate(res.top):
+            code = str(p.code)
+            old = items.get(code)
             if old is None:
-                res.drops.append(Drop(p, None))
+                drop = Drop(p, None)
             elif p.price <= old["ref"] * (1 - pct / 100):
-                res.drops.append(Drop(p, old["ref"]))
+                drop = Drop(p, old["ref"])
+            else:
+                continue
+            if last_top is not None:
+                drop.entered = code not in last_top
+                drop.first = i == 0 and bool(last_top) and last_top[0] != code
+            res.drops.append(drop)
+    entry["top"] = [str(p.code) for p in res.top]
 
     for p in matching:
         old = items.get(str(p.code))
@@ -282,31 +311,79 @@ LINK_PREFIX = "🔗 "  # notify.py turns these lines into buttons where it can (
 
 
 def product_line(p: akakce.Product, watch: dict, drop: Drop | None) -> str:
-    """'61.900₺  Gigabyte Gaming OC' – one line; a drop adds a short second line."""
+    """'61.900₺  Gigabyte Gaming OC' – one line, emojis always at the end. A price drop is
+    bold with the old price struck through: '*57.000₺  Gigabyte Gaming OC* ~61.900₺~ %8 🔥 ⬇️ 🥇'
+    (🔥 at/below target, ⬇️ dropped, 🥇 took 1st place, 🆕 entered the top 5).
+    *bold* / ~strike~ are WhatsApp style; Telegram gets them as HTML."""
     target = watch.get("target")
-    fire = "🔥" if target is not None and p.price <= float(target) else ""
-    line = f"{fire}{lira(p.price)}  {short_name(p.name, watch)}"
+    line = f"{lira(p.price)}  {short_name(p.name, watch)}"
     if p.seller:
         line += f" · {seller_name(p.seller)}"
-    if drop and drop.before is None:
-        return f"{line} 🆕"
-    if drop:
+    tags = []
+    if target is not None and p.price <= float(target):
+        tags.append("🔥")
+    if drop and drop.before is not None:
         pct = (drop.before - p.price) / drop.before * 100
-        return f"{line}\n      ⬇️ %{pct:.0f} · önce {lira(drop.before)}"
-    return line
+        line = f"*{line}* ~{lira(drop.before)}~ %{pct:.0f}"
+        tags.append("⬇️")
+    if drop and drop.first:
+        tags.append("🥇")
+    elif drop and (drop.entered or drop.before is None):
+        tags.append("🆕")
+    return f"{line} {' '.join(tags)}" if tags else line
 
 
-def watch_block(res: WatchResult, products: list[akakce.Product], seller: str) -> str:
+SECTION_LINE = "──────────"  # no blank lines inside a block: they separate watches (ntfy, splitting)
+
+
+def watch_block(res: WatchResult, products: list[akakce.Product], seller: str, alert: bool = False) -> str:
+    """One watch in a message. `alert` (a price-drop message): first the dropped products,
+    then – separated by a line – the cheapest 5 with the dropped ones marked the same way."""
     w = res.watch
     head = f"▸ *{label(w)}*"
     if w.get("target") is not None:
-        head += f" · 🎯 {lira(float(w['target']))}"
+        head += f" · hedef {lira(float(w['target']))} 🎯"
     drops = {d.product.code: d for d in res.drops}
-    lines = [head] + [product_line(p, w, drops.get(p.code)) for p in products]
+    lines = [head]
+    if alert and res.drops:
+        lines.append("*Düşen ürünler* 📉")
+        lines += [product_line(d.product, w, d) for d in res.drops]
+        lines += [SECTION_LINE, f"*En ucuz {min(top_n(w), len(products))} ürün* 🏆"]
+    lines += [product_line(p, w, drops.get(p.code)) for p in products]
     if seller:
-        lines.append(f"🏪 En ucuz: {seller_name(seller)}")
+        lines.append(f"En ucuz: {seller_name(seller)} 🏪")
     lines.append(f"{LINK_PREFIX}{search_url(w)}")
     return "\n".join(lines)
+
+
+def _event(res: WatchResult, d: Drop) -> tuple[int, str]:
+    """(importance, push title) for one change – what someone sees on the lock screen."""
+    w, p = res.watch, d.product
+    name = short_name(p.name, w)
+    # a seller list's label already names the sellers ("iPhone 17 · Amazon Türkiye")
+    where = f" ({seller_name(p.seller)})" if p.seller and not w["id"].endswith(SELLER_VIEW) else ""
+    if d.first:
+        return 3, f"{label(w)}: yeni en ucuz {lira(p.price)} – {name}{where} 🥇"
+    if d.entered or d.before is None:
+        return 2, f"{label(w)}: {name}{where} ilk {to_n(top_n(w))} girdi – {lira(p.price)} 🆕"
+    pct = (d.before - p.price) / d.before * 100
+    return 1, f"{label(w)}: {name}{where} {lira(p.price)} oldu, %{pct:.0f} düştü ⬇️"
+
+
+def alert_title(results: list[WatchResult]) -> str:
+    """The most important change; '+N' if there are more (e.g. other watches too)."""
+    events = sorted((_event(r, d) for r in results for d in r.drops), key=lambda e: -e[0])
+    if not events:
+        return "Güncel liste 👀"
+    more = f" (+{len(events) - 1})" if len(events) > 1 else ""
+    text, emoji = events[0][1].rsplit(" ", 1)
+    return f"{text}{more} {emoji}"
+
+
+def _timed(title: str, time: str) -> str:
+    """'Takip başladı 👀' + '17:36' -> 'Takip başladı · 17:36 👀' (emoji stays last)."""
+    text, _, emoji = title.rpartition(" ")
+    return f"{text} · {time} {emoji}" if text else f"{title} · {time}"
 
 
 def build_message(
@@ -318,36 +395,38 @@ def build_message(
     for res in results:
         if res.error:
             if res.warn or summary_slot:
-                blocks.append(f"⚠️ *{label(res.watch)}*: Akakçe okunamadı ({res.error})")
+                blocks.append(f"*{label(res.watch)}*: Akakçe okunamadı ({res.error}) ⚠️")
             continue
         if res.recovered:
-            blocks.append(f"✅ *{label(res.watch)}* tekrar okunuyor.")
-        if summary_slot or res.is_new:
-            products = res.top
-        else:
-            products = [d.product for d in res.drops]
+            blocks.append(f"*{label(res.watch)}* tekrar okunuyor ✅")
+        # Summaries and new lists show the cheapest 5; a price-drop alert shows the dropped
+        # products and, under them, the cheapest 5 (watch_block). Quiet otherwise.
+        alert = not summary_slot and not res.is_new
+        if alert and not res.drops:
+            continue
+        products = res.top
         if not products:
             continue
-        blocks.append(watch_block(res, products, sellers.get(res.watch["id"], "")))
+        blocks.append(watch_block(res, products, sellers.get(res.watch["id"], ""), alert=alert))
         reported.append((res, products))
 
     if not blocks:
         return None, []
+    time = summary_slot[-5:] if summary_slot else ""
     if title:
-        title = f"{title} · {summary_slot[-5:]}" if summary_slot else title
+        title = _timed(title, time) if summary_slot else title
     elif summary_slot and summary_slot.startswith("now "):
-        title = f"📋 Özet · {summary_slot[-5:]}"
+        title = _timed("Özet 📋", time)
     elif summary_slot:
-        hour = int(summary_slot[-5:-3])
-        title = ("☀️ Sabah özeti" if hour < 15 else "🌙 Akşam özeti") + f" · {summary_slot[-5:]}"
-    elif any(d.before is not None for r, _ in reported for d in r.drops):
-        title = "📉 Fiyat düştü!"
+        title = _timed("Sabah özeti ☀️" if int(time[:2]) < 15 else "Akşam özeti 🌙", time)
     elif any(r.drops for r, _ in reported):
-        title = "🆕 İlk 5'e yeni ürün girdi"
+        title = alert_title([r for r, _ in reported])
     elif any(r.is_new for r, _ in reported):
-        title = "👀 Güncel liste"
+        title = "Güncel liste 👀"
+    elif any(r.error for r in results):
+        title = "Akakçe okunamadı ⚠️"
     else:
-        title = "ℹ️ Fiyat botu"
+        title = "Fiyat botu ℹ️"
     return title + "\n\n" + "\n\n".join(blocks), reported
 
 
@@ -391,8 +470,14 @@ def cached_offers(product: akakce.Product, state: dict, now: float) -> list[dict
     return offers
 
 
+def seller_candidates(watch: dict) -> int:
+    """Product pages checked for a seller list: a few more than it shows, at most 25."""
+    return min(25, max(SELLER_CANDIDATES, top_n(watch) + 5))
+
+
 def apply_seller_filter(
-    matching: list[akakce.Product], allowed: list[str], state: dict, now: float | None = None
+    matching: list[akakce.Product], allowed: list[str], state: dict, now: float | None = None,
+    candidates: int = SELLER_CANDIDATES,
 ) -> list[akakce.Product]:
     """Re-price the cheapest candidates with their cheapest offer from an allowed seller.
 
@@ -401,7 +486,7 @@ def apply_seller_filter(
     among those are dropped. Result: cheapest first, each with `seller` set."""
     now = now or time.time()
     result = []
-    for p in matching[:SELLER_CANDIDATES]:
+    for p in matching[:candidates]:
         try:
             offers = cached_offers(p, state, now)
         except akakce.AkakceError:
@@ -411,7 +496,7 @@ def apply_seller_filter(
             best = min(good, key=lambda o: o["price"])
             result.append(akakce.Product(p.code, p.name, best["price"], p.url, p.offer_count, best["seller"]))
     # Forget cached offers of products that are no longer candidates.
-    keep = {str(p.code) for p in matching[:SELLER_CANDIDATES * 2]}
+    keep = {str(p.code) for p in matching[:candidates * 2]}
     state["offers"] = {k: v for k, v in state.get("offers", {}).items() if k in keep or now - v["t"] < 86400}
     return sorted(result, key=lambda p: p.price)
 
@@ -437,7 +522,8 @@ def seller_view(watch: dict) -> dict:
     return {**watch, "id": watch["id"] + SELLER_VIEW, "name": f"{label(watch)} · {sellers}", "target": watch.get("target")}
 
 
-FINGERPRINT_KEYS = ("query", "url", "include", "exclude", "min_price", "max_price", "sellers", "category")
+FINGERPRINT_KEYS = ("query", "url", "include", "exclude", "min_price", "max_price", "sellers", "category",
+                    "top_n")
 
 
 def fingerprint(watch: dict) -> str:
@@ -485,7 +571,8 @@ def check(watch: dict, state: dict, settings: dict, meta: dict | None = None) ->
         view_entry, _ = _entry(state, view["id"], fp)
         if fresh:
             view_entry.pop("items", None)
-        results.append(evaluate(view, apply_seller_filter(matching, watch["sellers"], state), view_entry, pct))
+        sellers = apply_seller_filter(matching, watch["sellers"], state, candidates=seller_candidates(watch))
+        results.append(evaluate(view, sellers, view_entry, pct))
     for res in results:
         res.fp = fp
         res.is_new = fresh and meta.get("shown_fp") != fp
@@ -544,7 +631,7 @@ def run_jobs(settings: dict, watches: list[dict], dry_run: bool) -> None:
             if job.get("type") == "summary":
                 mine = [x for x in watches if x["owner"] == owner]
                 if mine:
-                    send_list(owner, mine, state, settings, "📋 Özet", dry_run)
+                    send_list(owner, mine, state, settings, "Özet 📋", dry_run)
                 elif chat:
                     notify.telegram_reply(chat, "Henüz takibin yok. /menu → ➕ Yeni takip")
             elif not w:
@@ -556,11 +643,13 @@ def run_jobs(settings: dict, watches: list[dict], dry_run: bool) -> None:
                     notify.telegram_reply(chat, f"❌ '{label(w)}' için ürün bulamadım, takibi sildim. "
                                                 "Farklı kelimelerle tekrar dene: /menu → ➕ Yeni takip")
                     continue
-                notify.watches_put([w])
-                res = send_list(owner, [w], state, settings, "👀 Takip başladı", dry_run)[0]
+                # Only the fields the setup decided: the menu may have changed others meanwhile
+                # (e.g. how many products to show). None = remove the field.
+                notify.watches_patch([{"id": w["id"], **{k: w.get(k) for k in ("include", "min_price", "category")}}])
+                res = send_list(owner, [w], state, settings, "Takip başladı 👀", dry_run)[0]
                 metas[w["id"]] = {"setup": "done", "shown_fp": fingerprint(w), **watch_meta(res, state)}
             elif job["type"] == "show":
-                send_list(owner, [w], state, settings, "📊 Şimdiki fiyatlar", dry_run)
+                send_list(owner, [w], state, settings, "Şimdiki fiyatlar 📊", dry_run)
             elif job["type"] == "sellers":
                 res = check(w, state, settings)[0]
                 metas[w["id"]] = watch_meta(res, state)
@@ -578,7 +667,7 @@ def run_jobs(settings: dict, watches: list[dict], dry_run: bool) -> None:
 
 # ---------------------------------------------------------------- main
 
-COMMANDS_MENU_VERSION = 4  # bump when commands.BOT_COMMANDS changes, so the '/' menu is refreshed
+COMMANDS_MENU_VERSION = 5  # bump when commands.BOT_COMMANDS changes, so the '/' menu is refreshed
 
 
 def main(argv: list[str] | None = None, now: datetime | None = None) -> int:

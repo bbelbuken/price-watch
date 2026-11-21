@@ -107,7 +107,25 @@ test("/menu, 0 and other home words show the main menu", async () => {
     await say(w);
     ok(screen().text.includes("Ana menü"), w);
   }
-  eq(Object.keys(screen().buttons), ["➕ Yeni takip", "📋 Takiplerim", "📊 Özet gönder", "❓ Yardım"]);
+  eq(Object.keys(screen().buttons), ["➕ Yeni takip", "📋 Takiplerim", "📊 Özet", "❓ Yardım"]);
+});
+
+test("help: sections with bold headings, buttons to act on it", async () => {
+  for (const ask of [() => say("/yardim"), () => tap("y")]) {
+    await ask();
+    const { text, buttons } = screen();
+    ok(text.startsWith("❓ <b>Nasıl kullanılır</b>"), "bold title");
+    for (const h of ["➕ Takip ekle", "⚙️ Bir takibin ayarları", "🔔 Bildirimler", "⌨️ Kısayollar"]) {
+      ok(text.includes(`<b>${h}</b>`), h);
+    }
+    ok(text.split("\n").every((l) => l.length <= 45), "short lines");
+    eq(Object.values(buttons), ["a", "l", "h"]);
+  }
+});
+
+test("/menu with the bot's name (Telegram groups) still opens the main menu", async () => {
+  await say("/menu@discount_track_bot");
+  ok(screen().text.includes("Ana menü – ne yapmak istersin?"), "home");
 });
 
 test("adding a watch is instant; the Akakçe part goes to a GitHub job", async () => {
@@ -119,7 +137,11 @@ test("adding a watch is instant; the Akakçe part goes to a GitHub job", async (
   eq(w.meta, { setup: "pending" });
   eq(jobs(), [{ type: "setup", owner: "gf", chat: String(GF), watch: "gf-1" }]);
   eq(dispatches, 1);
-  ok(screen().text.includes("Eklendi") && screen().buttons["🏪 Satıcılar"] === "s:gf-1", "watch screen");
+  ok(screen().text.includes("Eklendi") && screen().text.includes("kaç ürün"), "asks how many");
+  ok(["✅ 5", "10", "15", "20"].every((b) => screen().buttons[b]), "5 / 10 / 15 / 20, 5 checked");
+  await press("10");
+  eq(watch("gf-1").body.top_n, 10);
+  ok(screen().text.includes("en ucuz 10 ürün") && screen().buttons["🏪 Satıcılar"] === "s:gf-1", "watch screen");
 });
 
 test("/ekle shortcut and a bad link", async () => {
@@ -182,6 +204,21 @@ test("excluded words: add several, remove one, clear", async () => {
   eq(watch("gf-1").body.exclude, ["kılıf", "pro"]);
   await press("Hepsini temizle");
   eq(watch("gf-1").body.exclude, undefined);
+});
+
+test("how many products: change from the watch screen, 5 is the default", async () => {
+  addWatch("gf-1", "gf");
+  await tap("w:gf-1");
+  ok(screen().text.includes("en ucuz 5 ürün"), "default 5");
+  await press("Ürün sayısı");
+  ok(screen().buttons["✅ 5"], "5 checked");
+  await press("20");
+  eq(watch("gf-1").body.top_n, 20);
+  ok(screen().buttons["🔢 Ürün sayısı: 20"], "button shows 20");
+  await tap("n:gf-1:5");
+  eq(watch("gf-1").body.top_n, undefined); // back to default: field removed
+  await tap("n:gf-1:7"); // not a choice
+  eq(watch("gf-1").body.top_n, undefined);
 });
 
 test("category filter is shown and can be removed", async () => {
@@ -287,8 +324,10 @@ test("GitHub API: auth, import only once, meta merge, jobs ack", async () => {
   await api("/watches/meta", { metas: { "me-1": { shown_fp: "abc" } } });
   const [w] = (await api("/watches")).watches;
   eq([w.id, w.meta], ["me-1", { cheapest: 61900, shown_fp: "abc" }]);
-  await api("/watches/put", { watches: [{ ...w.body, min_price: 30000 }] });
-  eq(watch("me-1").body.min_price, 30000);
+  env.DB.raw.prepare("UPDATE watches SET body = ?2 WHERE id = ?1")  // the menu changed top_n meanwhile
+    .run("me-1", JSON.stringify({ ...w.body, top_n: 15, include: ["9070 xt"] }));
+  await api("/watches/patch", { watches: [{ id: "me-1", min_price: 30000, include: null, category: "ekran-karti" }] });
+  eq(watch("me-1").body, { id: "me-1", owner: "me", query: "9070 xt", top_n: 15, min_price: 30000, category: "ekran-karti" });
   await tap("o", ME);
   const { jobs: list } = await api("/jobs");
   eq(list.map((j) => j.type), ["summary"]);

@@ -5,7 +5,8 @@
 // GitHub (Bearer INBOX_TOKEN):
 //   GET  /watches              : all watches [{id, owner, pos, body, meta}]
 //   POST /watches/import       : {"watches": [body…]} – only if the table is empty (first run)
-//   POST /watches/put          : {"watches": [body…]} – update settings (after a new watch's setup)
+//   POST /watches/patch        : {"watches": [{id, field: value…}]} – merge into the settings
+//                                (a new watch's setup); null removes a field
 //   POST /watches/delete       : {"ids": […]}
 //   POST /watches/meta         : {"metas": {id: {…}}} – merge price-run info (cheapest, sellers)
 //   GET  /jobs, POST /jobs/ack : work that needs Akakçe (new watch setup, prices now, summary)
@@ -63,9 +64,17 @@ async function api(path, request, env) {
         .bind(w.id, w.owner, i, JSON.stringify(w))));
     return Response.json({ imported: ws.length });
   }
-  if (path === "/watches/put") {
-    await batch(env, (body.watches || []).map((w) =>
-      env.DB.prepare("UPDATE watches SET body = ?2 WHERE id = ?1").bind(w.id, JSON.stringify(w))));
+  if (path === "/watches/patch") {
+    const { results } = await env.DB.prepare("SELECT id, body FROM watches").all();
+    const current = Object.fromEntries(results.map((r) => [r.id, JSON.parse(r.body)]));
+    await batch(env, (body.watches || []).filter((p) => current[p.id]).map((p) => {
+      const merged = { ...current[p.id] };
+      for (const [k, v] of Object.entries(p)) {
+        if (v === null) delete merged[k];
+        else merged[k] = v;
+      }
+      return env.DB.prepare("UPDATE watches SET body = ?2 WHERE id = ?1").bind(p.id, JSON.stringify(merged));
+    }));
     return Response.json({ ok: true });
   }
   if (path === "/watches/delete") {
@@ -166,7 +175,7 @@ function escapeHtml(s) {
 async function showScreen(env, chat, screen, editId) {
   const payload = {
     chat_id: chat,
-    text: escapeHtml(screen.text),
+    text: escapeHtml(screen.text).replace(/\*([^*\n]+)\*/g, "<b>$1</b>"), // *bold*
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: screen.rows.filter((r) => r.length).map((r) =>
       r.map(([text, data]) => ({ text, callback_data: data }))) },
@@ -271,7 +280,7 @@ const withNote = (note, text) => (note ? `${note}\n\n${text}` : text);
 function homeScreen(note) {
   return {
     text: withNote(note, "🏠 Ana menü – ne yapmak istersin?"),
-    rows: [[["➕ Yeni takip", "a"], ["📋 Takiplerim", "l"]], [["📊 Özet gönder", "o"], ["❓ Yardım", "y"]]],
+    rows: [[["➕ Yeni takip", "a"], ["📋 Takiplerim", "l"]], [["📊 Özet", "o"], ["❓ Yardım", "y"]]],
   };
 }
 
@@ -294,9 +303,22 @@ function summaryText(w) {
     `🎯 Hedef: ${b.target ? lira(b.target) : "yok"}`,
     `💰 Aralık: ${b.min_price ? lira(b.min_price) : "0₺"} – ${b.max_price ? lira(b.max_price) : "sınırsız"}`,
     `🚫 Hariç: ${(b.exclude || []).join(", ") || "yok"}`,
+    `🔢 Gösterilen: en ucuz ${topN(b)} ürün (dışındaki indirimler bildirilmez)`,
     `🏪 Satıcılar: ${(b.sellers || []).join(", ") || "sadece genel liste"}`,
     ...(b.category ? [`📂 Kategori: ${categoryName(b.category)} (diğer kategoriler gösterilmez)`] : []),
   ].join("\n");
+}
+
+const TOP_CHOICES = [5, 10, 15, 20];
+const topN = (b) => Number(b.top_n) || 5;
+
+function countScreen(w, note) {
+  const n = topN(w.body);
+  return {
+    text: withNote(note, `🔢 ${label(w.body)} – kaç ürün gösterilsin?\n` +
+      `Listelerde en ucuz bu kadar ürün görünür; bildirim sadece bunların içindeki indirimler için gelir. Şu an: ${n}`),
+    rows: [TOP_CHOICES.map((c) => [c === n ? `✅ ${c}` : String(c), `n:${w.id}:${c}`]), nav(`w:${w.id}`)],
+  };
 }
 
 function categoryName(slug) {
@@ -311,7 +333,8 @@ function watchScreen(w, note) {
     rows: [
       [["🎯 Hedef", `t:${id}`], ["💰 Fiyat aralığı", `r:${id}`]],
       [["🚫 Hariç kelimeler", `x:${id}`], ["🏪 Satıcılar", `s:${id}`]],
-      [["📊 Şimdiki fiyatlar", `p:${id}`], ["🗑 Takibi sil", `d:${id}`]],
+      [[`🔢 Ürün sayısı: ${topN(w.body)}`, `n:${id}`], ["📊 Şimdiki fiyatlar", `p:${id}`]],
+      [["🗑 Takibi sil", `d:${id}`]],
       ...(w.body.category ? [[[`❌ Kategori filtresini kaldır (${categoryName(w.body.category)})`, `c-:${id}`]]] : []),
       nav("l"),
     ],
@@ -367,7 +390,7 @@ function sellersScreen(w, note) {
   }
   return {
     text: withNote(note, `🏪 ${label(w.body)} – satıcılar (en ucuz teklifleri)\n` +
-      "Dokunarak seç ✅ / kaldır ▫️. Seçtiklerinin en ucuz 5'i genel listenin altına gelir."),
+      `Dokunarak seç ✅ / kaldır ▫️. Seçtiklerinin en ucuz ${topN(w.body)} ürünü genel listenin altına gelir.`),
     rows: [
       ...options.slice(0, 24).map(([name, price], i) =>
         [[`${chosen(w.body, name) ? "✅" : "▫️"} ${name} · ${lira(price)}`, `s~:${w.id}:${i}`]]),
@@ -379,13 +402,43 @@ function sellersScreen(w, note) {
 
 const prompt = (text, back) => ({ text, rows: [nav(back)] });
 
-const HELP = "🤖 Fiyat botu\n\nHer şey menüden: /menu (ya da 0 yaz).\n" +
-  "🏠 Ana menü → ➕ Yeni takip · 📋 Takiplerim · 📊 Özet\n" +
-  "Bir takibin içinde: 🎯 hedef fiyat · 💰 fiyat aralığı · 🚫 hariç kelimeler · " +
-  "🏪 satıcılar (seçtiklerinin en ucuz 5'i genel listenin altına gelir) · 🗑 sil.\n" +
-  "Eklediğin her şeyi aynı yerden kaldırabilirsin. Her ekranda ↩ Geri ve 🏠 Ana menü var.\n\n" +
-  "Değişikliklerden sonra güncel liste en geç 10 dakika içinde bir kez gelir.\n" +
-  "Kısayol: /ekle iphone 17 hedef 60000 hariç kılıf, pro";
+// *bold* lines (see showScreen); short lines so nothing wraps mid-sentence on a phone.
+const HELP = [
+  "❓ *Nasıl kullanılır*",
+  "",
+  "*➕ Takip ekle*",
+  "Ürünün adını yaz, ör. iphone 17",
+  "Bot en ucuz ürünleri bulur,",
+  "aksesuarları kendisi ayıklar.",
+  "",
+  "*⚙️ Bir takibin ayarları*",
+  "🎯 Hedef – bu fiyata inince 🔥",
+  "💰 Fiyat aralığı – en düşük / en yüksek",
+  "🚫 Hariç kelimeler – ör. kılıf, pro",
+  "🔢 Ürün sayısı – 5 / 10 / 15 / 20",
+  "🏪 Satıcılar – seçtiklerine ayrı liste",
+  "🗑 Takibi sil",
+  "Her ayar aynı ekrandan kaldırılır.",
+  "",
+  "*🔔 Bildirimler*",
+  "⬇️ Listedeki bir ürün ucuzlayınca",
+  "🥇 Yeni en ucuz ürün",
+  "🆕 Listeye yeni giren ürün",
+  "☀️ 09:00 ve 🌙 21:00 özet",
+  "Ayar değişince güncel liste",
+  "en geç 10 dakikada bir kez gelir.",
+  "",
+  "*⌨️ Kısayollar*",
+  "/menu ya da 0 – ana menü",
+  "/liste – takiplerim",
+  "/ozet – şimdi özet",
+  "/ekle iphone 17 hedef 60000",
+].join("\n");
+
+const helpScreen = () => ({
+  text: HELP,
+  rows: [[["➕ Yeni takip", "a"], ["📋 Takiplerim", "l"]], [[HOME, "h"]]],
+});
 
 // ---------------------------------------------------------------- input
 
@@ -403,7 +456,7 @@ async function onButton(data, owner, chat, env, ctx) {
     await addJob(env, ctx, { type: "summary", owner, chat });
     return { text: "📋 Özet hazırlanıyor, ~1 dakika içinde gelir.", rows: [nav(null)] };
   }
-  if (action === "y") return { text: HELP, rows: [nav(null)] };
+  if (action === "y") return helpScreen();
 
   const w = await getWatch(env, owner, id);
   if (!w) return homeScreen("Bu takip artık yok.");
@@ -450,7 +503,14 @@ async function onButton(data, owner, chat, env, ctx) {
     case "s0": delete b.sellers; return change(sellersScreen(w, "✅ Satıcı listesi kaldırıldı"));
     case "p":
       await addJob(env, ctx, { type: "show", owner, chat, watch: id });
-      return { text: `📊 ${label(b)} – şimdiki en ucuz 5, ~1 dakika içinde gelir.`, rows: [nav(`w:${id}`)] };
+      return { text: `📊 ${label(b)} – şimdiki en ucuz ${topN(b)} ürün ~1 dakika içinde gelir.`, rows: [nav(`w:${id}`)] };
+    case "n": {
+      const n = Number(arg);
+      if (!TOP_CHOICES.includes(n)) return countScreen(w);
+      if (n === 5) delete b.top_n;
+      else b.top_n = n;
+      return change(watchScreen(w, `✅ En ucuz ${n} ürün gösterilecek. Yeni liste en geç 10 dakika içinde gelir.`));
+    }
     case "d":
       return { text: `🗑 ${label(b)} takibi silinsin mi?`, rows: [[["✅ Evet, sil", `d!:${id}`], [BACK, `w:${id}`]], [[HOME, "h"]]] };
     case "d!":
@@ -475,8 +535,8 @@ async function onText(text, owner, chat, env, ctx) {
     if (cmd === "ekle") return args ? addWatch(args, owner, chat, env, ctx) : onButton("a", owner, chat, env, ctx);
     if (cmd === "liste") return listScreen(await myWatches(env, owner));
     if (cmd === "ozet") return onButton("o", owner, chat, env, ctx);
-    if (cmd === "yardim" || cmd === "help") return { text: HELP, rows: [nav(null)] };
-    return homeScreen();
+    if (cmd === "yardim" || cmd === "help") return helpScreen();
+    return homeScreen(); // /menu, /start, /menu@botname and anything unknown
   }
   if (!menu.await) return homeScreen("Menüden seçebilirsin 👇");
   await setMenu(env, owner, {});
@@ -530,6 +590,6 @@ async function addWatch(text, owner, chat, env, ctx) {
   await env.DB.prepare("INSERT INTO watches (id, owner, pos, body, meta) VALUES (?1, ?2, ?3, ?4, ?5)")
     .bind(body.id, owner, pos, JSON.stringify(body), JSON.stringify({ setup: "pending" })).run();
   await addJob(env, ctx, { type: "setup", owner, chat, watch: body.id });
-  return watchScreen({ id: body.id, body, meta: {} },
-    `✅ Eklendi: ${label(body)} – Akakçe'ye bakıyorum, en ucuz 5 ~1 dakika içinde gelir.`);
+  return countScreen({ id: body.id, body, meta: {} },
+    `✅ Eklendi: ${label(body)} – Akakçe'ye bakıyorum, en ucuz ürünler ~1 dakika içinde gelir.`);
 }

@@ -42,7 +42,7 @@ https://www.callmebot.com/blog/free-api-whatsapp-messages/). Telegram wins if bo
 ## Telegram menu (Cloudflare Worker, free)
 The button menu runs in a free Cloudflare Worker, so it answers **instantly**; `/menu` (or `0`) opens it:
 
-- 🏠 **Ana menü**: ➕ Yeni takip · 📋 Takiplerim · 📊 Özet gönder · ❓ Yardım
+- 🏠 **Ana menü**: ➕ Yeni takip · 📋 Takiplerim · 📊 Özet · ❓ Yardım
 - a watch: 🎯 Hedef · 💰 Fiyat aralığı · 🚫 Hariç kelimeler · 🏪 Satıcılar · 📊 Şimdiki fiyatlar · 🗑 Takibi sil
 - everything that can be set can be removed on the same screen; every screen has ↩ Geri and 🏠 Ana menü
 - 🏪 Satıcılar: tap sellers to select ✅ / unselect ▫️ – their own top 5 comes under the general one

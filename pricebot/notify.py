@@ -48,9 +48,10 @@ def channel(owner: str) -> str | None:
 
 
 def to_telegram_html(text: str) -> str:
-    """Escape for Telegram's HTML mode and turn WhatsApp *bold* into <b>bold</b>."""
+    """Escape for Telegram's HTML mode; WhatsApp *bold* -> <b>bold</b>, ~strike~ -> <s>strike</s>."""
     escaped = html.escape(text, quote=False)
-    return re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", escaped)
+    escaped = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", escaped)
+    return re.sub(r"~([^~\n]+)~", r"<s>\1</s>", escaped)
 
 
 def split(text: str, limit: int) -> list[str]:
@@ -175,8 +176,9 @@ def watches_import(bodies: list[dict]) -> bool:
     return _worker("/watches/import", {"watches": bodies}) is not None
 
 
-def watches_put(bodies: list[dict]) -> bool:
-    return _worker("/watches/put", {"watches": bodies}) is not None
+def watches_patch(patches: list[dict]) -> bool:
+    """[{id, field: value, …}] – merged into the stored settings; a None value removes the field."""
+    return _worker("/watches/patch", {"watches": patches}) is not None
 
 
 def watches_delete(ids: list[str]) -> bool:
@@ -224,9 +226,11 @@ def ntfy_payloads(topic: str, text: str) -> list[dict]:
     """First line -> notification title, the rest -> body (plain text, *bold* removed),
     links -> buttons. Long bodies become several notifications '<title> (1/2)', '(2/2)'."""
     plain = re.sub(r"\*([^*\n]+)\*", r"\1", text)
+    plain = re.sub(r"~([^~\n]+)~", r"(önce \1)", plain)  # no strikethrough in plain text
     title, _, body = plain.partition("\n")
     chunks = split(body.strip() or title, NTFY_LIMIT)
-    priority = 4 if any(mark in title for mark in ("📉", "🆕", "⚠️")) else 3
+    # ⬇ / ⚠ without the emoji variation selector, so both spellings match
+    priority = 4 if any(mark in title for mark in ("⬇", "🥇", "🆕", "⚠")) else 3
     payloads = []
     for i, chunk in enumerate(chunks, 1):
         message, actions = _link_buttons(chunk)

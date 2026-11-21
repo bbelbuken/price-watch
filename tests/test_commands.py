@@ -138,7 +138,7 @@ def worker(monkeypatch):
     monkeypatch.setattr(notify, "watches_fetch", lambda: [dict(r) for r in db["rows"]])
     monkeypatch.setattr(notify, "watches_import", lambda b: db["rows"].extend(
         {"id": w["id"], "owner": w["owner"], "body": w, "meta": {}} for w in b) or True)
-    monkeypatch.setattr(notify, "watches_put", lambda b: db["put"].extend(b) or True)
+    monkeypatch.setattr(notify, "watches_patch", lambda b: db["put"].extend(b) or True)
     monkeypatch.setattr(notify, "watches_delete", lambda ids: db["deleted"].extend(ids) or True)
     monkeypatch.setattr(notify, "watches_meta", lambda m: db["metas"].update(m) or True)
     monkeypatch.setattr(notify, "jobs_fetch", lambda: list(db["jobs"]))
@@ -188,12 +188,14 @@ def test_setup_job_finishes_the_watch_and_shows_it_once(worker, monkeypatch):
     monkeypatch.setattr(commands, "default_probe", lambda w: RELEVANCE)
     monkeypatch.setattr(main, "load_state", lambda: pytest.fail("Telegram runs must not load state.json"))
     main.main(["--mode", "commands"])
-    [put] = worker["put"]
-    assert put["min_price"] == 52400
+    [patch] = worker["put"]
+    # only the fields the setup decides – anything else the menu set meanwhile is left alone
+    assert set(patch) == {"id", "include", "min_price", "category"} and patch["min_price"] == 52400
     [(owner, text)] = worker["sent"]
-    assert owner == "gf" and text.startswith("👀 Takip başladı") and "Kılıf" not in text
+    assert owner == "gf" and text.startswith("Takip başladı · ") and "Kılıf" not in text
     meta = worker["metas"]["gf-1"]
-    assert meta["shown_fp"] == main.fingerprint(put) and meta["seller_options"]
+    finished = {**gf_watch()["body"], **patch}
+    assert meta["shown_fp"] == main.fingerprint(finished) and meta["seller_options"]
     assert worker["acked"] == [1]
 
 
@@ -218,7 +220,7 @@ def test_show_summary_and_sellers_jobs(worker, monkeypatch):
     monkeypatch.setattr(main, "fetch", lambda w: PHONES[:3])
     main.main(["--mode", "commands"])
     titles = [t.splitlines()[0].split(" · ")[0] for _, t in worker["sent"]]
-    assert titles == ["📊 Şimdiki fiyatlar", "📋 Özet"] and all(o == "gf" for o, _ in worker["sent"])
+    assert titles == ["Şimdiki fiyatlar", "Özet"] and all(o == "gf" for o, _ in worker["sent"])
     assert "9070" not in worker["sent"][1][1]  # her summary has only her watches
     assert worker["replies"][0][2] == [[("🏪 Satıcıları aç", "s:gf-1")]]
     assert worker["metas"]["gf-1"]["seller_options"][0] == ["Pttavm", 81997]

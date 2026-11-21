@@ -18,9 +18,9 @@ AUTO_MIN_FACTOR = 0.6  # new watch without "min": ignore listings under 60% of t
 
 BOT_COMMANDS = [  # Telegram's "/" menu
     ("menu", "Ana menü"),
-    ("ekle", "Yeni takip: /ekle iphone 17"),
+    ("ekle", "Yeni takip"),
     ("liste", "Takiplerim"),
-    ("ozet", "Şimdi özet gönder"),
+    ("ozet", "Özet"),
     ("yardim", "Nasıl kullanılır"),
 ]
 

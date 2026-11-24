@@ -27,7 +27,6 @@ watches:
   query: 9070 xt
   include: [9070 xt]
   exclude: [laptop, notebook, bilgisayar, sistem, kasa]
-  min_price: 30000
   target: 58000
 - id: rx9070
   owner: me

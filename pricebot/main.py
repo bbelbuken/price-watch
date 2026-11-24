@@ -231,6 +231,7 @@ class WatchResult:
 
 
 FORGET_AFTER_DAYS = 7  # products not seen this long are forgotten
+BACK_AFTER_S = 3600  # a product gone from the page this long that comes back into the list alerts (🆕)
 
 
 def evaluate(
@@ -239,6 +240,7 @@ def evaluate(
     entry: dict,
     min_drop_pct: float,
     today: str | None = None,
+    now: float | None = None,
 ) -> WatchResult:
     """Compare fresh results with the state entry and update the entry's prices.
 
@@ -248,10 +250,12 @@ def evaluate(
     entry["items"][code] = {"price", "ref" (price the owner last heard about), "seen" (date)}.
     `ref` follows the price up (so a later fall is a drop), but only moves down when the
     owner is told (mark_reported) – slow creeping drops add up instead of being lost.
-    Products are remembered for FORGET_AFTER_DAYS even when they drop off the page, so
-    one coming back isn't reported as new.
+    Products are remembered for FORGET_AFTER_DAYS even when they drop off the page. One that
+    comes back into the top N after being gone for BACK_AFTER_S (sold out, back in stock)
+    alerts like a new one even at its old price – a short blip off the page doesn't.
     """
     today = today or datetime.now(TURKEY).date().isoformat()
+    now = time.time() if now is None else now
     items: dict = entry.setdefault("items", {})
     res = WatchResult(watch, top=matching[:top_n(watch)], is_new=not items)
     pct = float(watch.get("min_drop_pct", min_drop_pct))
@@ -265,6 +269,8 @@ def evaluate(
                 drop = Drop(p, None)
             elif p.price <= old["ref"] * (1 - pct / 100):
                 drop = Drop(p, old["ref"])
+            elif now - old.get("gone", now) >= BACK_AFTER_S:
+                drop = Drop(p, None, entered=True)  # back on the page
             else:
                 continue
             if last_top is not None:
@@ -273,6 +279,10 @@ def evaluate(
             res.drops.append(drop)
     entry["top"] = [str(p.code) for p in res.top]
 
+    here = {str(p.code) for p in matching}
+    for code, item in items.items():
+        if code not in here:
+            item.setdefault("gone", now)  # when it left the page
     for p in matching:
         old = items.get(str(p.code))
         ref = p.price if old is None else max(old["ref"], p.price)

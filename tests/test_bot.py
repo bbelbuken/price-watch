@@ -170,10 +170,34 @@ def test_product_that_left_the_page_is_remembered_for_7_days():
     entry = {}
     main.evaluate(W, [P(1, 50000), P(2, 51000)], entry, 1, today="2026-11-01")
     main.evaluate(W, [P(1, 50000)], entry, 1, today="2026-11-03")  # 2 dropped off the page
-    back = main.evaluate(W, [P(1, 50000), P(2, 51000)], entry, 1, today="2026-11-05")
-    assert back.drops == []  # not reported as new
+    assert "2" in entry["items"]
     main.evaluate(W, [P(1, 50000)], entry, 1, today="2026-11-20")
     assert "2" not in entry["items"]  # forgotten after 7 days unseen
+
+
+def test_short_blip_off_the_page_says_nothing():
+    entry = {}
+    main.evaluate(W, [P(1, 50000), P(2, 51000)], entry, 1, now=0)
+    main.evaluate(W, [P(1, 50000)], entry, 1, now=600)  # gone for one run
+    back = main.evaluate(W, [P(1, 50000), P(2, 51000)], entry, 1, now=1200)
+    assert back.drops == []
+
+
+def test_back_in_stock_into_the_list_alerts_even_at_its_old_price():
+    """RX 9070: the PowerColor Reaper was 49.858₺, sold out for days, came back at 49.750₺
+    (-0.2%, under the 1% rule) as the new cheapest – this used to say nothing."""
+    entry = {}
+    others = [P(i, 66818 + i * 1000) for i in range(2, 7)]
+    main.evaluate(W, [P(1, 49858)] + others, entry, 1, today="2026-11-20", now=0)
+    main.evaluate(W, others, entry, 1, today="2026-11-21", now=600)  # sold out
+    back = main.evaluate(W, [P(1, 49750)] + others[:4], entry, 1, today="2026-11-23", now=3 * 86400)
+    [d] = back.drops
+    assert d.product.code == 1 and d.before is None and d.first and d.entered
+    text = main.build_message([back], None, {})[0]
+    assert text.splitlines()[0].endswith("🥇")
+    # told once: the next run is quiet, and it no longer counts as gone
+    again = main.evaluate(W, [P(1, 49750)] + others[:4], entry, 1, now=3 * 86400 + 600)
+    assert again.drops == [] and "gone" not in entry["items"]["1"]
 
 
 @pytest.mark.parametrize("given, expected", [

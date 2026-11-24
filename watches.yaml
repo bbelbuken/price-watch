@@ -16,7 +16,12 @@ watches:
 - {id: gf-1, owner: gf, query: iphone 17 amazon fiyatları, category: cep-telefonu, min_price: 63700}
 - {id: gf-2, owner: gf, query: mediamarkt iphone 17, category: para-kasasi}
 - {id: gf-3, owner: gf, query: vatan bilgisayar iphone 17 fiyatları, category: cep-telefonu, min_price: 63700}
-- {id: gf-4, owner: gf, query: iphone 17 teknosa fiyatları, category: cep-telefonu, min_price: 63500}
+- id: gf-4
+  owner: gf
+  query: iphone 17 teknosa fiyatları
+  exclude: ['16', e]
+  min_price: 63500
+  category: cep-telefonu
 - id: rx9070xt
   owner: me
   query: 9070 xt

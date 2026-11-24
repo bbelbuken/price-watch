@@ -14,6 +14,7 @@ watches:
   min_price: 59300
   category: cep-telefonu
   sellers: [Trendyol, Amazon Türkiye, MediaMarkt, A101, n11, Hepsiburada, Migros Sanal Market Ekstra]
+- {id: gf-2, owner: gf, query: dyson airsmooth sac sekillendirme fircasi, category: sac-duzlestirici}
 - id: rx9070xt
   owner: me
   query: 9070 xt

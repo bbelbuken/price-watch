@@ -11,8 +11,9 @@ watches:
   query: iphone 17
   include: [iphone 17]
   top_n: 10
-  category: cep-telefonu
   min_price: 59300
+  category: cep-telefonu
+  sellers: [Trendyol, Amazon Türkiye, MediaMarkt, A101, n11, Hepsiburada, Migros Sanal Market Ekstra]
 - id: rx9070xt
   owner: me
   query: 9070 xt

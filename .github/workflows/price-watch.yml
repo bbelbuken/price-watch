@@ -65,6 +65,9 @@ jobs:
           MODE: ${{ inputs.mode || 'all' }}
         run: python -m pricebot.main --mode "$MODE"
 
+      # watches.yaml is only a readable copy of the Worker's list. When a price run and a
+      # Telegram run both rewrite it at once, the newer copy wins the conflict (-X theirs =
+      # this run's commit during a rebase); any run after that writes it fresh again anyway.
       - name: Save watch list changes (Telegram commands)
         if: always()
         run: |
@@ -74,10 +77,11 @@ jobs:
           git add watches.yaml
           git commit -q -m "Update watches from Telegram commands"
           for i in 1 2 3; do
-            git pull -q --rebase && git push -q && exit 0
+            git pull -q --rebase -X theirs && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true
             sleep 5
           done
-          echo "::error::could not push watches.yaml"; exit 1
+          echo "::warning::could not push watches.yaml (only a copy; the next run retries)"
 
       - name: Save price memory
         if: always() && inputs.mode != 'commands' && hashFiles('state.json') != ''

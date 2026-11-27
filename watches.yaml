@@ -13,16 +13,15 @@ watches:
   include: [9070 xt]
   exclude: [laptop, notebook, bilgisayar, sistem, kasa]
   target: 58000
-- id: rx9070
-  owner: me
-  name: RX 9070
-  url: https://www.akakce.com/ekran-karti/rx-9070.html
-  exclude: [9070 xt, 9070 gre]
-  min_price: 25000
-  target: 50000
 - id: me-1
   owner: me
   query: 9800x3d
   include: [9800x3d]
   category: islemci
   min_price: 13600
+- id: me-2
+  owner: me
+  query: Rtx 5080
+  include: [Rtx 5080]
+  category: ekran-karti
+  min_price: 88000
